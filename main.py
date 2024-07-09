@@ -252,7 +252,7 @@ def main(
         # Append new data to the bulk data file
         with open("bulk_data.txt", "a") as f:
             if new_data:
-                f.write("\n" + "\n".join(new_data))
+                f.write("\n".join(new_data))
         log("Bulk data updated.", verbose)
 
         # Write set URLs to ppsh-bulk.txt
