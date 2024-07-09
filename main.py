@@ -13,6 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 CACHE_FILE = "tmdb_cache.pkl"
+GLOBAL_TIMEOUT = 2
 
 
 def log(message, verbose):
@@ -140,8 +141,9 @@ def login_mediux(driver, username, password, nickname, verbose=False):
     base_url = "https://mediux.pro"
     driver.get(base_url)
     try:
+        time.sleep(GLOBAL_TIMEOUT)
         login_button = driver.find_element(
-            By.XPATH, "/html/body/header/div/div/button[contains(text(), 'Sign Up')]"
+            By.XPATH, "/html/body/header/div/div/button[contains(text(), 'Sign In')]"
         )
         login_button.click()
 
@@ -247,7 +249,7 @@ def main(
                 yaml_data = scrape_mediux(driver, tmdb_id, media_type, verbose)
                 new_data.append(yaml_data)
                 set_urls.update(extract_set_urls(yaml_data))
-                time.sleep(2)  # Sleep to avoid overwhelming the server
+                time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
 
         # Append new data to the bulk data file
         with open("bulk_data.txt", "a") as f:
@@ -278,8 +280,8 @@ if __name__ == "__main__":
     parser.add_argument("api_key", type=str, help="TMDB API key")
     parser.add_argument("username", type=str, help="Mediux username")
     parser.add_argument("password", type=str, help="Mediux password")
-    parser.add_argument("profile_path", type=str, help="Path to Chrome user profile")
     parser.add_argument("nickname", type=str, help="Mediux nickname")
+    parser.add_argument("--profile_path", type=str, help="Path to Chrome user profile")
     parser.add_argument(
         "--folders",
         nargs="*",
