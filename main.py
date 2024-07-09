@@ -205,7 +205,7 @@ def save_cache(cache, cache_file, verbose=False):
 def load_bulk_data(bulk_data_file, verbose=False):
     if os.path.exists(bulk_data_file):
         log(f"Loading bulk data from {bulk_data_file}...", verbose)
-        with open(bulk_data_file, "r") as f:
+        with open(bulk_data_file, "r", encoding="utf-8") as f:
             bulk_data = f.read()
         log("Bulk data loaded.", verbose)
         return bulk_data
@@ -261,13 +261,13 @@ def main(
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
 
         # Append new data to the bulk data file
-        with open("bulk_data.txt", "a") as f:
+        with open("bulk_data.txt", "a", encoding="utf-8") as f:
             if new_data:
                 f.write("\n".join(new_data))
         log("Bulk data updated.", verbose)
 
         # Write set URLs to ppsh-bulk.txt
-        with open("ppsh-bulk.txt", "a") as f:
+        with open("ppsh-bulk.txt", "a", encoding="utf-8") as f:
             for url in set_urls:
                 f.write(url + "\n")
         log("Set URLs updated in ppsh-bulk.txt.", verbose)
