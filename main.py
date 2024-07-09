@@ -95,33 +95,39 @@ def scrape_mediux(driver, tmdb_id, media_type, verbose=False):
         url = f"{base_url}/shows/{tmdb_id}"
 
     driver.get(url)
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located(
-            (
-                By.XPATH,
-                "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (
+                    By.XPATH,
+                    "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
+                )
             )
         )
-    )
-    yaml_button = driver.find_element(
-        By.XPATH,
-        "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
-    )
-    yaml_button.click()
-
-    # Wait for the YAML data to be fully loaded
-    yaml_element = WebDriverWait(driver, 20).until(
-        EC.presence_of_element_located(
-            (By.XPATH, "/html/body/div[2]/div[2]/div/div/pre/code")
+        yaml_button = driver.find_element(
+            By.XPATH,
+            "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
         )
-    )
-    yaml_data = ""
-    while not yaml_data.strip():
-        yaml_data = yaml_element.get_attribute("innerText")
-        time.sleep(0.5)  # Wait before trying again
+        yaml_button.click()
 
-    log(f"YAML data loaded for TMDB ID {tmdb_id}.", verbose)
-    return yaml_data
+        # Wait for the YAML data to be fully loaded
+        yaml_element = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "/html/body/div[2]/div[2]/div/div/pre/code")
+            )
+        )
+        yaml_data = ""
+        while not yaml_data.strip():
+            yaml_data = yaml_element.get_attribute("innerText")
+            time.sleep(0.5)  # Wait before trying again
+
+        log(f"YAML data loaded for TMDB ID {tmdb_id}.", verbose)
+        return yaml_data
+    except Exception as e:
+        log(
+            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML: {e}", verbose
+        )
+        return ""
 
 
 # Extract set URLs from YAML data
@@ -247,6 +253,9 @@ def main(
             )
             if tmdb_id:
                 yaml_data = scrape_mediux(driver, tmdb_id, media_type, verbose)
+                if not yaml_data:
+                    log(f"No YAML data found for TMDB ID {tmdb_id}.", verbose)
+                    continue
                 new_data.append(yaml_data)
                 set_urls.update(extract_set_urls(yaml_data))
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
