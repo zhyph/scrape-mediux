@@ -10,6 +10,9 @@ This script automates the process of scraping movie and TV show poster data from
 - **Extracts and saves** unique Mediux set URLs to a text file.
 - **Handles early termination** and ensures all processed data is saved.
 - **Optional splitting** of YAML data into folder-specific files.
+- **Outputs files for kometa and plex-poster-set-helper**
+  - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your plex library.
+  - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your plex library, if you are insterested check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux) for more information.
 
 ## Requirements
 
