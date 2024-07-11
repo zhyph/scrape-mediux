@@ -4,6 +4,8 @@ import time
 import argparse
 import requests
 import pickle
+import atexit
+from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -14,6 +16,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 CACHE_FILE = "tmdb_cache.pkl"
 GLOBAL_TIMEOUT = 2
+
+new_data = defaultdict(list)
+set_urls = set()
+cache = {}
+verbose = False
 
 
 def log(message, verbose):
@@ -39,6 +46,7 @@ def init_driver(headless=True, profile_path=None, verbose=False):
 def get_imdb_ids(root_folder, selected_folders=None, verbose=False):
     log("Fetching IMDb IDs from folder names...", verbose)
     imdb_ids = []
+    folder_map = defaultdict(list)
     folders_to_search = (
         selected_folders if selected_folders else os.listdir(root_folder)
     )
@@ -52,9 +60,11 @@ def get_imdb_ids(root_folder, selected_folders=None, verbose=False):
                 if os.path.isdir(subfolder_path):
                     match = re.search(r"imdb-(tt\d+)", subfolder)
                     if match:
-                        imdb_ids.append(match.group(1))
+                        imdb_id = match.group(1)
+                        imdb_ids.append(imdb_id)
+                        folder_map[imdb_id].append(folder)
     log(f"Found IMDb IDs: {imdb_ids}", verbose)
-    return imdb_ids
+    return imdb_ids, folder_map
 
 
 # Fetch TMDB ID using IMDb ID with caching
@@ -213,6 +223,30 @@ def load_bulk_data(bulk_data_file, verbose=False):
     return ""
 
 
+def write_data_to_files():
+    global new_data, set_urls, verbose
+    log("Writing data to files...", verbose)
+
+    # Write new data to the appropriate files
+    for folder, data in new_data.items():
+        file_name = "bulk_data.txt" if folder == "bulk" else f"{folder}_data.txt"
+        with open(file_name, "a", encoding="utf-8") as f:
+            if data:
+                f.write("\n".join(data))
+        log(f"Data updated in {file_name}.", verbose)
+
+    # Write set URLs to ppsh-bulk.txt
+    with open("ppsh-bulk.txt", "a", encoding="utf-8") as f:
+        for url in set_urls:
+            f.write(url + "\n")
+    log("Set URLs updated in ppsh-bulk.txt.", verbose)
+
+    save_cache(cache, CACHE_FILE, verbose)
+    log("Cache saved.", verbose)
+
+    log("Data writing completed.", verbose)
+
+
 # Main script
 def main(
     root_folder,
@@ -223,28 +257,50 @@ def main(
     nickname,
     selected_folders=None,
     headless=True,
-    verbose=False,
+    verbose_arg=False,
+    split=False,
 ):
+    global cache, new_data, set_urls, verbose
+    verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
     bulk_data = load_bulk_data("bulk_data.txt", verbose)
-    imdb_ids = get_imdb_ids(root_folder, selected_folders, verbose)
+
+    folder_bulk_data = {}
+    if split:
+        folder_bulk_data = {
+            folder: load_bulk_data(f"{folder}_data.txt", verbose)
+            for folder in os.listdir(root_folder)
+            if os.path.isdir(os.path.join(root_folder, folder))
+        }
+
+    imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders, verbose)
     driver = init_driver(headless, profile_path, verbose)
 
     try:
         login_mediux(driver, username, password, nickname, verbose)
-        new_data = []
-        set_urls = set()
         for imdb_id in imdb_ids:
             tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache, verbose)
 
-            if str(tmdb_id) in bulk_data or any(
-                str(tmdb_id) in item for item in new_data
-            ):
-                log(
-                    f"Skipping TMDB ID {tmdb_id} as it is already in bulk_data.txt",
-                    verbose,
-                )
+            already_processed = False
+            if split:
+                for folder in folder_map[imdb_id]:
+                    if str(tmdb_id) in folder_bulk_data.get(folder, ""):
+                        already_processed = True
+                        log(
+                            f"Skipping TMDB ID {tmdb_id} as it is already in {folder}_data.txt",
+                            verbose,
+                        )
+                        break
+            else:
+                if str(tmdb_id) in bulk_data:
+                    already_processed = True
+                    log(
+                        f"Skipping TMDB ID {tmdb_id} as it is already in bulk_data.txt",
+                        verbose,
+                    )
+
+            if already_processed:
                 continue
 
             log(
@@ -256,26 +312,17 @@ def main(
                 if not yaml_data:
                     log(f"No YAML data found for TMDB ID {tmdb_id}.", verbose)
                     continue
-                new_data.append(yaml_data)
+                if split:
+                    for folder in folder_map[imdb_id]:
+                        new_data[folder].append(yaml_data)
+                else:
+                    new_data["bulk"].append(yaml_data)
                 set_urls.update(extract_set_urls(yaml_data))
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
-
-        # Append new data to the bulk data file
-        with open("bulk_data.txt", "a", encoding="utf-8") as f:
-            if new_data:
-                f.write("\n".join(new_data))
-        log("Bulk data updated.", verbose)
-
-        # Write set URLs to ppsh-bulk.txt
-        with open("ppsh-bulk.txt", "a", encoding="utf-8") as f:
-            for url in set_urls:
-                f.write(url + "\n")
-        log("Set URLs updated in ppsh-bulk.txt.", verbose)
 
     finally:
         log("Quitting driver...", verbose)
         driver.quit()
-        save_cache(cache, CACHE_FILE, verbose)
         log("Script finished.", verbose)
 
 
@@ -300,8 +347,15 @@ if __name__ == "__main__":
         "--headless", action="store_true", help="Run Selenium in headless mode"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--split",
+        action="store_true",
+        help="Split YAML data into folder-specific files",
+    )
 
     args = parser.parse_args()
+
+    atexit.register(write_data_to_files)
 
     main(
         args.root_folder,
@@ -313,4 +367,5 @@ if __name__ == "__main__":
         args.folders,
         args.headless,
         args.verbose,
+        args.split,
     )
