@@ -229,7 +229,7 @@ def write_data_to_files():
 
     # Write new data to the appropriate files
     for folder, data in new_data.items():
-        file_name = "bulk_data.txt" if folder == "bulk" else f"{folder}_data.txt"
+        file_name = "bulk_data.yml" if folder == "bulk" else f"{folder}_data.yml"
         with open(file_name, "a", encoding="utf-8") as f:
             if data:
                 f.write("\n".join(data))
@@ -264,12 +264,12 @@ def main(
     verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
-    bulk_data = load_bulk_data("bulk_data.txt", verbose)
+    bulk_data = load_bulk_data("bulk_data.yml", verbose)
 
     folder_bulk_data = {}
     if split:
         folder_bulk_data = {
-            folder: load_bulk_data(f"{folder}_data.txt", verbose)
+            folder: load_bulk_data(f"{folder}_data.yml", verbose)
             for folder in os.listdir(root_folder)
             if os.path.isdir(os.path.join(root_folder, folder))
         }
@@ -285,18 +285,22 @@ def main(
             already_processed = False
             if split:
                 for folder in folder_map[imdb_id]:
-                    if str(tmdb_id) in folder_bulk_data.get(folder, ""):
+                    curr_bulk_data = folder_bulk_data.get(folder, "")
+                    if (
+                        str(tmdb_id) in curr_bulk_data
+                        or str(tmdb_id) in new_data[folder]
+                    ):
                         already_processed = True
                         log(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in {folder}_data.txt",
+                            f"Skipping TMDB ID {tmdb_id} as it is already in {folder}_data.yml",
                             verbose,
                         )
                         break
             else:
-                if str(tmdb_id) in bulk_data:
+                if str(tmdb_id) in bulk_data or str(tmdb_id) in new_data["bulk"]:
                     already_processed = True
                     log(
-                        f"Skipping TMDB ID {tmdb_id} as it is already in bulk_data.txt",
+                        f"Skipping TMDB ID {tmdb_id} as it is already in bulk_data.yml",
                         verbose,
                     )
 
