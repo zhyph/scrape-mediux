@@ -324,7 +324,7 @@ def main(
     imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders, verbose)
     for folder in folder_map.values():
         for f in folder:
-            processed_ids[f] = load_processed_ids(f, verbose)
+            processed_ids[f] = load_processed_ids(f)
 
     driver = init_driver(headless, profile_path, verbose)
 
