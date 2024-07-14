@@ -264,7 +264,7 @@ def write_data_to_files(kometa_integration):
             if os.path.exists(file_name):
                 with open(file_name, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                if "metadata:" not in lines[0]:
+                if not lines or "metadata:" not in lines[0]:
                     lines.insert(0, "metadata:\n")
                 with open(file_name, "w", encoding="utf-8") as f:
                     f.writelines(lines)
@@ -284,10 +284,8 @@ def write_data_to_files(kometa_integration):
     log("Set URLs updated in ./out/ppsh-bulk.txt.", verbose)
 
     save_cache(cache, CACHE_FILE, verbose)
-    log("Cache saved.", verbose)
 
     save_processed_ids(PROCESSED_IDS_FILE, processed_ids, verbose)
-    log("Processed IDs saved.", verbose)
 
     log("Data writing completed.", verbose)
 
