@@ -14,13 +14,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-CACHE_FILE = "tmdb_cache.pkl"
+CACHE_FILE = "./out/tmdb_cache.pkl"
+PROCESSED_IDS_FILE = "./out/processed_ids.txt"
 GLOBAL_TIMEOUT = 2
 
 new_data = defaultdict(list)
 set_urls = set()
 cache = {}
 verbose = False
+processed_ids = set()
 
 
 def log(message, verbose):
@@ -223,13 +225,40 @@ def load_bulk_data(bulk_data_file, verbose=False):
     return ""
 
 
+# Load processed IDs from file
+def load_processed_ids(processed_ids_file, verbose=False):
+    if os.path.exists(processed_ids_file):
+        log(f"Loading processed IDs from {processed_ids_file}...", verbose)
+        with open(processed_ids_file, "r", encoding="utf-8") as f:
+            ids = f.read().splitlines()
+        log("Processed IDs loaded.", verbose)
+        return set(ids)
+    log("No processed IDs file found.", verbose)
+    return set()
+
+
+# Save processed IDs to file
+def save_processed_ids(processed_ids_file, processed_ids, verbose=False):
+    log(f"Saving processed IDs to {processed_ids_file}...", verbose)
+    with open(processed_ids_file, "w", encoding="utf-8") as f:
+        for imdb_id in processed_ids:
+            f.write(imdb_id + "\n")
+    log("Processed IDs saved.", verbose)
+
+
 def write_data_to_files(kometa_integration):
     global new_data, set_urls, verbose
     log("Writing data to files...", verbose)
 
+    os.makedirs("./out/kometa", exist_ok=True)
+
     # Write new data to the appropriate files
     for folder, data in new_data.items():
-        file_name = "bulk_data.yml" if folder == "bulk" else f"{folder}_data.yml"
+        file_name = (
+            "./out/kometa/bulk_data.yml"
+            if folder == "bulk"
+            else f"./out/kometa/{folder}_data.yml"
+        )
         if kometa_integration:
             # Check and add 'metadata:' if not present
             if os.path.exists(file_name):
@@ -249,13 +278,16 @@ def write_data_to_files(kometa_integration):
         log(f"Data updated in {file_name}.", verbose)
 
     # Write set URLs to ppsh-bulk.txt
-    with open("ppsh-bulk.txt", "a", encoding="utf-8") as f:
+    with open("./out/ppsh-bulk.txt", "a", encoding="utf-8") as f:
         for url in set_urls:
             f.write(url + "\n")
-    log("Set URLs updated in ppsh-bulk.txt.", verbose)
+    log("Set URLs updated in ./out/ppsh-bulk.txt.", verbose)
 
     save_cache(cache, CACHE_FILE, verbose)
     log("Cache saved.", verbose)
+
+    save_processed_ids(PROCESSED_IDS_FILE, processed_ids, verbose)
+    log("Processed IDs saved.", verbose)
 
     log("Data writing completed.", verbose)
 
@@ -273,16 +305,17 @@ def main(
     verbose_arg=False,
     split=False,
 ):
-    global cache, new_data, set_urls, verbose
+    global cache, new_data, set_urls, verbose, processed_ids
     verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
-    bulk_data = load_bulk_data("bulk_data.yml", verbose)
+    processed_ids = load_processed_ids(PROCESSED_IDS_FILE, verbose)
+    bulk_data = load_bulk_data("./out/kometa/bulk_data.yml", verbose)
 
     folder_bulk_data = {}
     if split:
         folder_bulk_data = {
-            folder: load_bulk_data(f"{folder}_data.yml", verbose)
+            folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", verbose)
             for folder in os.listdir(root_folder)
             if os.path.isdir(os.path.join(root_folder, folder))
         }
@@ -293,6 +326,10 @@ def main(
     try:
         login_mediux(driver, username, password, nickname, verbose)
         for imdb_id in imdb_ids:
+            if imdb_id in processed_ids:
+                log(f"Skipping IMDb ID {imdb_id} as it is already processed", verbose)
+                continue
+
             tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache, verbose)
 
             already_processed = False
@@ -305,15 +342,17 @@ def main(
                     ):
                         already_processed = True
                         log(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in {folder}_data.yml",
+                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml",
                             verbose,
                         )
                         break
             else:
-                if str(tmdb_id) in bulk_data or str(tmdb_id) in new_data["bulk"]:
+                if str(tmdb_id) in bulk_data or any(
+                    str(tmdb_id) in data for data in new_data["bulk"]
+                ):
                     already_processed = True
                     log(
-                        f"Skipping TMDB ID {tmdb_id} as it is already in bulk_data.yml",
+                        f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/bulk_data.yml",
                         verbose,
                     )
 
@@ -335,6 +374,7 @@ def main(
                 else:
                     new_data["bulk"].append(yaml_data)
                 set_urls.update(extract_set_urls(yaml_data))
+                processed_ids.add(imdb_id)
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
 
     finally:
