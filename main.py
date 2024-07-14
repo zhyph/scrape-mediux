@@ -285,10 +285,8 @@ def write_data_to_files(kometa_integration):
     log("Set URLs updated in ./out/ppsh-bulk.txt.", verbose)
 
     save_cache(cache, CACHE_FILE, verbose)
-    log("Cache saved.", verbose)
 
     save_processed_ids(verbose)
-    log("Processed IDs saved.", verbose)
 
     log("Data writing completed.", verbose)
 
