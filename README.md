@@ -13,6 +13,7 @@ This script automates the process of scraping movie and TV show poster data from
 - **Outputs files for kometa and plex-poster-set-helper**
   - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your plex library.
   - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your plex library, if you are insterested check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux) for more information.
+- **Kometa Integration**: Adds `metadata:` to the first line of `*_data.yml` files if not present.
 
 ## Requirements
 
@@ -51,13 +52,14 @@ This script automates the process of scraping movie and TV show poster data from
 - `--headless` (optional): Run Selenium in headless mode.
 - `--verbose` (optional): Enable verbose output.
 - `--split` (optional): Split YAML data into folder-specific files.
+- `--kometa-integration` (optional): Add `metadata:` to the first line of `*_data.yml` files if not present.
 
 ### Running the Script
 
 #### Verbose Mode with Split
 
 ```bash
-python script_name.py "X:\media" your_tmdb_api_key your_mediux_username your_mediux_password "C:\Users\YourUsername\AppData\Local\Google\Chrome\User Data\Default" your_mediux_nickname --headless --verbose --split
+python script_name.py "X:\media" your_tmdb_api_key your_mediux_username your_mediux_password "C:\Users\YourUsername\AppData\Local\Google\Chrome\User Data\Default" your_mediux_nickname --headless --verbose --split --kometa-integration
 ```
 
 #### Non-Verbose Mode without Split
@@ -68,9 +70,9 @@ python script_name.py "X:\media" your_tmdb_api_key your_mediux_username your_med
 
 ### Output Files
 
-- `bulk_data.txt`: Contains all scraped YAML data if `--split` is not used.
+- `bulk_data.yml`: Contains all scraped YAML data if `--split` is not used.
 - `ppsh-bulk.txt`: Contains unique set URLs extracted from the YAML data.
-- `*_data.txt`: Folder-specific YAML data if `--split` is used.
+- `*_data.yml`: Folder-specific YAML data if `--split` is used.
 
 ### Handling Early Termination
 

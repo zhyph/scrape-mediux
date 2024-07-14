@@ -223,13 +223,26 @@ def load_bulk_data(bulk_data_file, verbose=False):
     return ""
 
 
-def write_data_to_files():
+def write_data_to_files(kometa_integration):
     global new_data, set_urls, verbose
     log("Writing data to files...", verbose)
 
     # Write new data to the appropriate files
     for folder, data in new_data.items():
         file_name = "bulk_data.yml" if folder == "bulk" else f"{folder}_data.yml"
+        if kometa_integration:
+            # Check and add 'metadata:' if not present
+            if os.path.exists(file_name):
+                with open(file_name, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                if "metadata:" not in lines[0]:
+                    lines.insert(0, "metadata:\n")
+                with open(file_name, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+            else:
+                with open(file_name, "w", encoding="utf-8") as f:
+                    f.write("metadata:\n")
+
         with open(file_name, "a", encoding="utf-8") as f:
             if data:
                 f.write("\n".join(data))
@@ -286,9 +299,9 @@ def main(
             if split:
                 for folder in folder_map[imdb_id]:
                     curr_bulk_data = folder_bulk_data.get(folder, "")
-                    if (
-                        str(tmdb_id) in curr_bulk_data
-                        or str(tmdb_id) in new_data[folder]
+
+                    if str(tmdb_id) in curr_bulk_data or any(
+                        str(tmdb_id) in data for data in new_data[folder]
                     ):
                         already_processed = True
                         log(
@@ -356,10 +369,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Split YAML data into folder-specific files",
     )
+    parser.add_argument(
+        "--kometa-integration",
+        action="store_true",
+        help="Add 'metadata:' to the first line of *_data.yml files if not present",
+    )
 
     args = parser.parse_args()
 
-    atexit.register(write_data_to_files)
+    atexit.register(write_data_to_files, args.kometa_integration)
 
     main(
         args.root_folder,
