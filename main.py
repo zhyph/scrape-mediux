@@ -15,14 +15,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 CACHE_FILE = "./out/tmdb_cache.pkl"
-PROCESSED_IDS_FILE = "./out/processed_ids.txt"
+PROCESSED_IDS_DIR = "./out/processed_ids"
 GLOBAL_TIMEOUT = 2
 
 new_data = defaultdict(list)
 set_urls = set()
 cache = {}
 verbose = False
-processed_ids = set()
+processed_ids = defaultdict(set)
 
 
 def log(message, verbose):
@@ -226,24 +226,25 @@ def load_bulk_data(bulk_data_file, verbose=False):
 
 
 # Load processed IDs from file
-def load_processed_ids(processed_ids_file, verbose=False):
-    if os.path.exists(processed_ids_file):
-        log(f"Loading processed IDs from {processed_ids_file}...", verbose)
-        with open(processed_ids_file, "r", encoding="utf-8") as f:
+def load_processed_ids(folder):
+    file_path = os.path.join(PROCESSED_IDS_DIR, f"{folder}_processed_ids.txt")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
             ids = f.read().splitlines()
-        log("Processed IDs loaded.", verbose)
         return set(ids)
-    log("No processed IDs file found.", verbose)
     return set()
 
 
 # Save processed IDs to file
-def save_processed_ids(processed_ids_file, processed_ids, verbose=False):
-    log(f"Saving processed IDs to {processed_ids_file}...", verbose)
-    with open(processed_ids_file, "w", encoding="utf-8") as f:
-        for imdb_id in processed_ids:
-            f.write(imdb_id + "\n")
-    log("Processed IDs saved.", verbose)
+def save_processed_ids(verbose=False):
+    os.makedirs(PROCESSED_IDS_DIR, exist_ok=True)
+    for folder, ids in processed_ids.items():
+        file_path = os.path.join(PROCESSED_IDS_DIR, f"{folder}_processed_ids.txt")
+        log(f"Saving processed IDs to {file_path}...", verbose)
+        with open(file_path, "w", encoding="utf-8") as f:
+            for imdb_id in ids:
+                f.write(imdb_id + "\n")
+        log(f"Processed IDs saved for {folder}.", verbose)
 
 
 def write_data_to_files(kometa_integration):
@@ -284,8 +285,10 @@ def write_data_to_files(kometa_integration):
     log("Set URLs updated in ./out/ppsh-bulk.txt.", verbose)
 
     save_cache(cache, CACHE_FILE, verbose)
+    log("Cache saved.", verbose)
 
-    save_processed_ids(PROCESSED_IDS_FILE, processed_ids, verbose)
+    save_processed_ids(verbose)
+    log("Processed IDs saved.", verbose)
 
     log("Data writing completed.", verbose)
 
@@ -302,12 +305,12 @@ def main(
     headless=True,
     verbose_arg=False,
     split=False,
+    kometa_integration=False,
 ):
     global cache, new_data, set_urls, verbose, processed_ids
     verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
-    processed_ids = load_processed_ids(PROCESSED_IDS_FILE, verbose)
     bulk_data = load_bulk_data("./out/kometa/bulk_data.yml", verbose)
 
     folder_bulk_data = {}
@@ -319,18 +322,30 @@ def main(
         }
 
     imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders, verbose)
+    for folder in folder_map.values():
+        for f in folder:
+            processed_ids[f] = load_processed_ids(f, verbose)
+
     driver = init_driver(headless, profile_path, verbose)
 
     try:
         login_mediux(driver, username, password, nickname, verbose)
         for imdb_id in imdb_ids:
-            if imdb_id in processed_ids:
-                log(f"Skipping IMDb ID {imdb_id} as it is already processed", verbose)
+            already_processed = False
+            for folder in folder_map[imdb_id]:
+                if imdb_id in processed_ids[folder]:
+                    log(
+                        f"Skipping IMDb ID {imdb_id} in folder {folder} as it is already processed",
+                        verbose,
+                    )
+                    already_processed = True
+                    break
+
+            if already_processed:
                 continue
 
             tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache, verbose)
 
-            already_processed = False
             if split:
                 for folder in folder_map[imdb_id]:
                     curr_bulk_data = folder_bulk_data.get(folder, "")
@@ -369,10 +384,11 @@ def main(
                 if split:
                     for folder in folder_map[imdb_id]:
                         new_data[folder].append(yaml_data)
+                        processed_ids[folder].add(imdb_id)
                 else:
                     new_data["bulk"].append(yaml_data)
+                    processed_ids["bulk"].add(imdb_id)
                 set_urls.update(extract_set_urls(yaml_data))
-                processed_ids.add(imdb_id)
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
 
     finally:
@@ -428,4 +444,5 @@ if __name__ == "__main__":
         args.headless,
         args.verbose,
         args.split,
+        args.kometa_integration,
     )

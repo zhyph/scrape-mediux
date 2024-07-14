@@ -1,4 +1,1 @@
-ppsh-bulk.txt
-tmdb_cache.pkl
-*_data.yml
-processed_ids.txt
+out/**/*
