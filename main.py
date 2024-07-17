@@ -13,16 +13,19 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from ruamel.yaml import YAML
+import json
 
 CACHE_FILE = "./out/tmdb_cache.pkl"
-PROCESSED_IDS_DIR = "./out/processed_ids"
 GLOBAL_TIMEOUT = 2
+CONFIG_FILE = "config.json"
 
-new_data = defaultdict(list)
+new_data = defaultdict(dict)
 set_urls = set()
 cache = {}
 verbose = False
-processed_ids = defaultdict(set)
+
+yaml = YAML()
 
 
 def log(message, verbose):
@@ -42,6 +45,14 @@ def init_driver(headless=True, profile_path=None, verbose=False):
     driver = webdriver.Chrome(service=service, options=chrome_options)
     log("WebDriver initialized.", verbose)
     return driver
+
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config
+    return {}
 
 
 # Get IMDb IDs from folder names
@@ -218,36 +229,35 @@ def load_bulk_data(bulk_data_file, verbose=False):
     if os.path.exists(bulk_data_file):
         log(f"Loading bulk data from {bulk_data_file}...", verbose)
         with open(bulk_data_file, "r", encoding="utf-8") as f:
-            bulk_data = f.read()
+            bulk_data = yaml.load(f)
+
+        if not bulk_data:
+            return {"metadata": {}}
+
         log("Bulk data loaded.", verbose)
         return bulk_data
-    log("No bulk data file found.", verbose)
-    return ""
+    return {"metadata": {}}
 
 
-# Load processed IDs from file
-def load_processed_ids(folder):
-    file_path = os.path.join(PROCESSED_IDS_DIR, f"{folder}_processed_ids.txt")
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            ids = f.read().splitlines()
-        return set(ids)
-    return set()
+# Integrate with Sonarr API to check if the series is ongoing
+def check_series_status(imdb_id, sonarr_api_key, sonarr_endpoint, verbose=False):
+    url = f"{sonarr_endpoint}/api/v3/series/lookup?term={imdb_id}"
+    headers = {
+        "X-Api-Key": sonarr_api_key,
+        "accept": "application/json",
+    }
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    if data and isinstance(data, list):
+        series_info = data[0]
+        tvdb_id = series_info["tvdbId"]
+        ended = series_info["ended"]
+        return tvdb_id, ended
+    return None, None
 
 
-# Save processed IDs to file
-def save_processed_ids(verbose=False):
-    os.makedirs(PROCESSED_IDS_DIR, exist_ok=True)
-    for folder, ids in processed_ids.items():
-        file_path = os.path.join(PROCESSED_IDS_DIR, f"{folder}_processed_ids.txt")
-        log(f"Saving processed IDs to {file_path}...", verbose)
-        with open(file_path, "w", encoding="utf-8") as f:
-            for imdb_id in ids:
-                f.write(imdb_id + "\n")
-        log(f"Processed IDs saved for {folder}.", verbose)
-
-
-def write_data_to_files(kometa_integration):
+# Write data to files
+def write_data_to_files():
     global new_data, set_urls, verbose
     log("Writing data to files...", verbose)
 
@@ -255,27 +265,20 @@ def write_data_to_files(kometa_integration):
 
     # Write new data to the appropriate files
     for folder, data in new_data.items():
-        file_name = (
-            "./out/kometa/bulk_data.yml"
-            if folder == "bulk"
-            else f"./out/kometa/{folder}_data.yml"
-        )
-        if kometa_integration:
-            # Check and add 'metadata:' if not present
-            if os.path.exists(file_name):
-                with open(file_name, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                if not lines or "metadata:" not in lines[0]:
-                    lines.insert(0, "metadata:\n")
-                with open(file_name, "w", encoding="utf-8") as f:
-                    f.writelines(lines)
-            else:
-                with open(file_name, "w", encoding="utf-8") as f:
-                    f.write("metadata:\n")
+        file_name = f"./out/kometa/{folder}_data.yml"
+        if os.path.exists(file_name):
+            with open(file_name, "r", encoding="utf-8") as f:
+                existing_data = yaml.load(f)
+                if not existing_data:
+                    existing_data = {"metadata": {}}
+        else:
+            existing_data = {"metadata": {}}
 
-        with open(file_name, "a", encoding="utf-8") as f:
-            if data:
-                f.write("\n".join(data))
+        for _, yaml_data in data.items():
+            existing_data["metadata"].update(yaml.load(yaml_data))
+
+        with open(file_name, "w", encoding="utf-8") as f:
+            yaml.dump(existing_data, f)
         log(f"Data updated in {file_name}.", verbose)
 
     # Write set URLs to ppsh-bulk.txt
@@ -286,43 +289,36 @@ def write_data_to_files(kometa_integration):
 
     save_cache(cache, CACHE_FILE, verbose)
 
-    save_processed_ids(verbose)
-
     log("Data writing completed.", verbose)
 
 
 # Main script
-def main(
+def run(
     root_folder,
     api_key,
     username,
     password,
     profile_path,
     nickname,
+    sonarr_api_key,
+    sonarr_endpoint,
     selected_folders=None,
     headless=True,
     verbose_arg=False,
-    split=False,
-    kometa_integration=False,
 ):
-    global cache, new_data, set_urls, verbose, processed_ids
+    global cache, new_data, set_urls, verbose
     verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
-    bulk_data = load_bulk_data("./out/kometa/bulk_data.yml", verbose)
 
     folder_bulk_data = {}
-    if split:
-        folder_bulk_data = {
-            folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", verbose)
-            for folder in os.listdir(root_folder)
-            if os.path.isdir(os.path.join(root_folder, folder))
-        }
+    folder_bulk_data = {
+        folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", verbose)
+        for folder in os.listdir(root_folder)
+        if os.path.isdir(os.path.join(root_folder, folder))
+    }
 
     imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders, verbose)
-    for folder in folder_map.values():
-        for f in folder:
-            processed_ids[f] = load_processed_ids(f)
 
     driver = init_driver(headless, profile_path, verbose)
 
@@ -330,40 +326,34 @@ def main(
         login_mediux(driver, username, password, nickname, verbose)
         for imdb_id in imdb_ids:
             already_processed = False
-            for folder in folder_map[imdb_id]:
-                if imdb_id in processed_ids[folder]:
-                    log(
-                        f"Skipping IMDb ID {imdb_id} in folder {folder} as it is already processed",
-                        verbose,
-                    )
-                    already_processed = True
-                    break
-
-            if already_processed:
-                continue
-
             tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache, verbose)
 
-            if split:
-                for folder in folder_map[imdb_id]:
-                    curr_bulk_data = folder_bulk_data.get(folder, "")
+            tvdb_id, ended = check_series_status(
+                imdb_id, sonarr_api_key, sonarr_endpoint, verbose
+            )
+            for folder in folder_map[imdb_id]:
+                curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
-                    if str(tmdb_id) in curr_bulk_data or any(
-                        str(tmdb_id) in data for data in new_data[folder]
-                    ):
-                        already_processed = True
-                        log(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml",
-                            verbose,
-                        )
-                        break
-            else:
-                if str(tmdb_id) in bulk_data or any(
-                    str(tmdb_id) in data for data in new_data["bulk"]
-                ):
+                if media_type == "tv":
+                    if tvdb_id is not None:
+                        if tvdb_id in curr_bulk_data.get("metadata", {}):
+                            if not ended:
+                                log(
+                                    f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry.",
+                                    verbose,
+                                )
+                                del curr_bulk_data["metadata"][tvdb_id]
+                            else:
+                                already_processed = True
+                                log(
+                                    f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry.",
+                                    verbose,
+                                )
+
+                if tmdb_id in curr_bulk_data["metadata"]:
                     already_processed = True
                     log(
-                        f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/bulk_data.yml",
+                        f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml",
                         verbose,
                     )
 
@@ -379,16 +369,12 @@ def main(
                 if not yaml_data:
                     log(f"No YAML data found for TMDB ID {tmdb_id}.", verbose)
                     continue
-                if split:
-                    for folder in folder_map[imdb_id]:
-                        new_data[folder].append(yaml_data)
-                        processed_ids[folder].add(imdb_id)
-                else:
-                    new_data["bulk"].append(yaml_data)
-                    processed_ids["bulk"].add(imdb_id)
+
+                for folder in folder_map[imdb_id]:
+                    new_data[folder][tmdb_id] = yaml_data
+
                 set_urls.update(extract_set_urls(yaml_data))
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
-
     finally:
         log("Quitting driver...", verbose)
         driver.quit()
@@ -400,13 +386,17 @@ if __name__ == "__main__":
         description="Scrape Mediux and create bulk data file."
     )
     parser.add_argument(
-        "root_folder", type=str, help="Root folder containing subfolders with IMDb IDs"
+        "--root_folder",
+        type=str,
+        help="Root folder containing subfolders with IMDb IDs",
     )
-    parser.add_argument("api_key", type=str, help="TMDB API key")
-    parser.add_argument("username", type=str, help="Mediux username")
-    parser.add_argument("password", type=str, help="Mediux password")
-    parser.add_argument("nickname", type=str, help="Mediux nickname")
+    parser.add_argument("--api_key", type=str, help="TMDB API key")
+    parser.add_argument("--username", type=str, help="Mediux username")
+    parser.add_argument("--password", type=str, help="Mediux password")
+    parser.add_argument("--nickname", type=str, help="Mediux nickname")
     parser.add_argument("--profile_path", type=str, help="Path to Chrome user profile")
+    parser.add_argument("--sonarr_api_key", type=str, help="Sonarr API key")
+    parser.add_argument("--sonarr_endpoint", type=str, help="Sonarr API endpoint")
     parser.add_argument(
         "--folders",
         nargs="*",
@@ -416,31 +406,35 @@ if __name__ == "__main__":
         "--headless", action="store_true", help="Run Selenium in headless mode"
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
-    parser.add_argument(
-        "--split",
-        action="store_true",
-        help="Split YAML data into folder-specific files",
-    )
-    parser.add_argument(
-        "--kometa-integration",
-        action="store_true",
-        help="Add 'metadata:' to the first line of *_data.yml files if not present",
-    )
 
     args = parser.parse_args()
 
-    atexit.register(write_data_to_files, args.kometa_integration)
+    config = load_config()
 
-    main(
-        args.root_folder,
-        args.api_key,
-        args.username,
-        args.password,
-        args.profile_path,
-        args.nickname,
-        args.folders,
-        args.headless,
-        args.verbose,
-        args.split,
-        args.kometa_integration,
+    root_folder = config.get("root_folder", args.root_folder)
+    api_key = config.get("api_key", args.api_key)
+    username = config.get("username", args.username)
+    password = config.get("password", args.password)
+    nickname = config.get("nickname", args.nickname)
+    profile_path = config.get("profile_path", args.profile_path)
+    sonarr_api_key = config.get("sonarr_api_key", args.sonarr_api_key)
+    sonarr_endpoint = config.get("sonarr_endpoint", args.sonarr_endpoint)
+    selected_folders = config.get("folders", args.folders)
+    headless = config.get("headless", args.headless)
+    verbose_arg = config.get("verbose", args.verbose)
+
+    atexit.register(write_data_to_files)
+
+    run(
+        root_folder,
+        api_key,
+        username,
+        password,
+        profile_path,
+        nickname,
+        sonarr_api_key,
+        sonarr_endpoint,
+        selected_folders,
+        headless,
+        verbose_arg,
     )
