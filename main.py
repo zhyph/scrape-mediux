@@ -16,6 +16,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from ruamel.yaml import YAML
 import json
 
+
 CACHE_FILE = "./out/tmdb_cache.pkl"
 GLOBAL_TIMEOUT = 2
 CONFIG_FILE = "config.json"
@@ -26,6 +27,7 @@ cache = {}
 verbose = False
 
 yaml = YAML()
+yaml.allow_duplicate_keys = True
 
 
 def log(message, verbose):
@@ -72,9 +74,11 @@ def get_imdb_ids(root_folder, selected_folders=None, verbose=False):
                 subfolder_path = os.path.join(folder_path, subfolder)
                 if os.path.isdir(subfolder_path):
                     match = re.search(r"imdb-(tt\d+)", subfolder)
-                    if match:
+                    name_match = re.search(r"(.+?)(?=\{imdb-)", subfolder)
+                    if match and name_match:
                         imdb_id = match.group(1)
-                        imdb_ids.append(imdb_id)
+                        media_name = name_match.group(1).strip()
+                        imdb_ids.append((imdb_id, media_name))
                         folder_map[imdb_id].append(folder)
     log(f"Found IMDb IDs: {imdb_ids}", verbose)
     return imdb_ids, folder_map
@@ -212,15 +216,23 @@ def load_cache(cache_file, verbose=False):
             cache = pickle.load(f)
         log("Cache loaded.", verbose)
         return cache
-    log("No cache file found.", verbose)
+    log("No cache file found. Initializing new cache.", verbose)
     return {}
 
 
 # Save cache to file
-def save_cache(cache, cache_file, verbose=False):
+def save_cache(updated_cache, cache_file, verbose=False):
     log(f"Saving cache to {cache_file}...", verbose)
+    if os.path.exists(cache_file):
+        with open(cache_file, "rb") as f:
+            existing_cache = pickle.load(f)
+    else:
+        existing_cache = {}
+
+    existing_cache.update(updated_cache)
+
     with open(cache_file, "wb") as f:
-        pickle.dump(cache, f)
+        pickle.dump(existing_cache, f)
     log("Cache saved.", verbose)
 
 
@@ -240,8 +252,8 @@ def load_bulk_data(bulk_data_file, verbose=False):
 
 
 # Integrate with Sonarr API to check if the series is ongoing
-def check_series_status(imdb_id, sonarr_api_key, sonarr_endpoint, verbose=False):
-    url = f"{sonarr_endpoint}/api/v3/series/lookup?term={imdb_id}"
+def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, verbose=False):
+    url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
         "X-Api-Key": sonarr_api_key,
         "accept": "application/json",
@@ -324,12 +336,12 @@ def run(
 
     try:
         login_mediux(driver, username, password, nickname, verbose)
-        for imdb_id in imdb_ids:
+        for imdb_id, media_name in imdb_ids:
             already_processed = False
             tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache, verbose)
 
             tvdb_id, ended = check_series_status(
-                imdb_id, sonarr_api_key, sonarr_endpoint, verbose
+                media_name, sonarr_api_key, sonarr_endpoint, verbose
             )
             for folder in folder_map[imdb_id]:
                 curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
