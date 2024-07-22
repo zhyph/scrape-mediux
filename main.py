@@ -123,25 +123,20 @@ def scrape_mediux(driver, tmdb_id, media_type, verbose=False):
 
     driver.get(url)
     try:
-        WebDriverWait(driver, 10).until(
+        yaml_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (
                     By.XPATH,
-                    "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
+                    "//button[span[contains(text(), 'YAML')]]",
                 )
             )
         )
-        yaml_button = driver.find_element(
-            By.XPATH,
-            "/html/body/main/div[2]/div[2]/div/div[3]/div/div[1]/div/div[1]/div/div/div/button[2]",
-        )
+
         yaml_button.click()
 
         # Wait for the YAML data to be fully loaded
         yaml_element = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "/html/body/div[2]/div[2]/div/div/pre/code")
-            )
+            EC.presence_of_element_located((By.XPATH, "//code"))
         )
         yaml_data = ""
         while not yaml_data.strip():
@@ -176,7 +171,7 @@ def login_mediux(driver, username, password, nickname, verbose=False):
     try:
         time.sleep(GLOBAL_TIMEOUT)
         login_button = driver.find_element(
-            By.XPATH, "/html/body/header/div/div/button[contains(text(), 'Sign In')]"
+            By.XPATH, "//button[contains(text(), 'Sign In')]"
         )
         login_button.click()
 
@@ -190,7 +185,7 @@ def login_mediux(driver, username, password, nickname, verbose=False):
         username_field.send_keys(username)
         password_field.send_keys(password)
 
-        submit_button = driver.find_element(By.XPATH, "/html/body/div[2]/form/button")
+        submit_button = driver.find_element(By.XPATH, "//form/button")
         submit_button.click()
 
         # Wait until login is successful (adjust the condition as necessary)
@@ -198,7 +193,7 @@ def login_mediux(driver, username, password, nickname, verbose=False):
             EC.presence_of_element_located(
                 (
                     By.XPATH,
-                    f"/html/body/header/div/div/button[contains(text(), '{nickname}')]",
+                    f"//button[contains(text(), '{nickname}')]",
                 )  # Assuming a different button appears after login
             )
         )
