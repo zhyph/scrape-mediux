@@ -22,9 +22,10 @@ GLOBAL_TIMEOUT = 2
 CONFIG_FILE = "config.json"
 
 new_data = defaultdict(dict)
-set_urls = set()
 cache = {}
 verbose = False
+folder_bulk_data = {}
+root_folder = ""
 
 yaml = YAML()
 yaml.allow_duplicate_keys = True
@@ -67,6 +68,7 @@ def get_imdb_ids(root_folder, selected_folders=None, verbose=False):
     )
 
     for folder in folders_to_search:
+        log(f"Searching folder: {folder}", verbose)
         folder_path = os.path.join(root_folder, folder)
         if os.path.isdir(folder_path):
             subfolders = os.listdir(folder_path)
@@ -232,17 +234,31 @@ def save_cache(updated_cache, cache_file, verbose=False):
 
 
 # Load existing bulk data to check for already processed IDs
-def load_bulk_data(bulk_data_file, verbose=False):
+def load_bulk_data(bulk_data_file, only_set_urls=False, verbose=False):
     if os.path.exists(bulk_data_file):
-        log(f"Loading bulk data from {bulk_data_file}...", verbose)
+        if only_set_urls:
+            log(f"Loading only set URLs from bulk data in {bulk_data_file}...", verbose)
+        else:
+            log(f"Loading bulk data from {bulk_data_file}...", verbose)
+
         with open(bulk_data_file, "r", encoding="utf-8") as f:
-            bulk_data = yaml.load(f)
+            if only_set_urls:
+                bulk_data = extract_set_urls(f.read())
+            else:
+                bulk_data = yaml.load(f)
 
         if not bulk_data:
+            if only_set_urls:
+                log("No set URLs found in bulk data.", verbose)
+                return set()
             return {"metadata": {}}
 
         log("Bulk data loaded.", verbose)
         return bulk_data
+
+    if only_set_urls:
+        return set()
+
     return {"metadata": {}}
 
 
@@ -265,12 +281,19 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, verbose=Fal
 
 # Write data to files
 def write_data_to_files():
-    global new_data, set_urls, verbose
+    global new_data, verbose, folder_bulk_data
     log("Writing data to files...", verbose)
 
     os.makedirs("./out/kometa", exist_ok=True)
 
-    # Write new data to the appropriate files
+    existing_urls = set()
+
+    for folder in os.listdir(root_folder):
+        if os.path.isdir(os.path.join(root_folder, folder)):
+            file_path = f"./out/kometa/{folder}_data.yml"
+            existing_urls.update(load_bulk_data(file_path, True, verbose))
+
+    # Update the YAML files and collect new URLs
     for folder, data in new_data.items():
         file_name = f"./out/kometa/{folder}_data.yml"
         if os.path.exists(file_name):
@@ -283,14 +306,16 @@ def write_data_to_files():
 
         for _, yaml_data in data.items():
             existing_data["metadata"].update(yaml.load(yaml_data))
+            urls = extract_set_urls(yaml_data)
+            existing_urls.update(urls)
 
         with open(file_name, "w", encoding="utf-8") as f:
             yaml.dump(existing_data, f)
         log(f"Data updated in {file_name}.", verbose)
 
-    # Write set URLs to ppsh-bulk.txt
-    with open("./out/ppsh-bulk.txt", "a", encoding="utf-8") as f:
-        for url in set_urls:
+    # Write unique URLs to ppsh-bulk.txt
+    with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
+        for url in sorted(existing_urls):
             f.write(url + "\n")
     log("Set URLs updated in ./out/ppsh-bulk.txt.", verbose)
 
@@ -301,7 +326,6 @@ def write_data_to_files():
 
 # Main script
 def run(
-    root_folder,
     api_key,
     username,
     password,
@@ -313,14 +337,13 @@ def run(
     headless=True,
     verbose_arg=False,
 ):
-    global cache, new_data, set_urls, verbose
+    global cache, new_data, verbose, folder_bulk_data, root_folder
     verbose = verbose_arg
     log("Starting script...", verbose)
     cache = load_cache(CACHE_FILE, verbose)
 
-    folder_bulk_data = {}
     folder_bulk_data = {
-        folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", verbose)
+        folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", False, verbose)
         for folder in os.listdir(root_folder)
         if os.path.isdir(os.path.join(root_folder, folder))
     }
@@ -380,7 +403,6 @@ def run(
                 for folder in folder_map[imdb_id]:
                     new_data[folder][tmdb_id] = yaml_data
 
-                set_urls.update(extract_set_urls(yaml_data))
                 time.sleep(GLOBAL_TIMEOUT)  # Sleep to avoid overwhelming the server
     finally:
         log("Quitting driver...", verbose)
@@ -433,7 +455,6 @@ if __name__ == "__main__":
     atexit.register(write_data_to_files)
 
     run(
-        root_folder,
         api_key,
         username,
         password,
