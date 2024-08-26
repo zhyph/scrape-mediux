@@ -1,0 +1,19 @@
+services:
+  mediux-scraper:
+    build: .
+    image: mediux-scraper
+    container_name: mediux-scraper
+    environment:
+      - DISPLAY=:99
+      - TZ=America/Sao_Paulo
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - .:/app
+      - ./:/config
+      - ./out:/app/out
+        #      - /mnt/samba/truenas/data/media:/media
+        #      - /home/zhyp/data/plex-meta-manager/config/metadata:/out
+    working_dir: /app
+    restart: unless-stopped
+    command: ['python', '-u', 'main.py']
