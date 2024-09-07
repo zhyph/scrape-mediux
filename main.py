@@ -372,6 +372,8 @@ def run(
 
     driver = init_driver(headless, profile_path)
 
+    updated_titles = []  # List to store updated titles
+
     try:
         login_mediux(driver, username, password, nickname)
 
@@ -423,11 +425,21 @@ def run(
                 for folder in folder_map[imdb_id]:
                     new_data[folder][tmdb_id] = yaml_data
 
+                updated_titles.append(media_name)  # Add the title to the list
+
                 time.sleep(GLOBAL_TIMEOUT)
     finally:
         print("Quitting driver...")
         driver.quit()
         print("Script finished.")
+
+        # Print the list of updated titles
+        if updated_titles:
+            print("Updated Titles:")
+            for title in updated_titles:
+                print(f"- {title}")
+        else:
+            print("No titles were updated.")
 
 
 def schedule_run(cron_expression):
