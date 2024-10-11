@@ -139,6 +139,7 @@ def scrape_mediux(driver, tmdb_id, media_type):
 
     driver.get(url)
     try:
+        time.sleep(5)
         yaml_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (
