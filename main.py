@@ -59,6 +59,7 @@ def init_driver(headless=True, profile_path=None):
     driver = webdriver.Chrome(
         service=ChromeService(driver_path), options=chrome_options
     )
+    # driver = webdriver.Chrome(options=chrome_options)
     print("WebDriver initialized.")
     return driver
 
@@ -103,7 +104,7 @@ def get_imdb_ids(root_folder, selected_folders=None):
 # Fetch TMDB ID using IMDb ID with caching
 def fetch_tmdb_id(imdb_id, api_key, cache):
     if imdb_id in cache:
-        print(f"Fetching TMDB ID for IMDb ID {imdb_id} from cache.")
+        print(f"\nFetching TMDB ID for IMDb ID {imdb_id} from cache.")
         return cache[imdb_id]
 
     print(f"Fetching TMDB ID for IMDb ID {imdb_id} from TMDB API...")
@@ -155,10 +156,17 @@ def scrape_mediux(driver, tmdb_id, media_type):
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
-        yaml_data = ""
-        while not yaml_data.strip():
-            yaml_data = yaml_element.get_attribute("innerText")
-            time.sleep(0.5)
+
+        WebDriverWait(driver, 20).until_not(
+            EC.presence_of_element_located(
+                (
+                    By.XPATH,
+                    "//*[contains(text(), 'Updating')]",
+                )
+            )
+        )
+
+        yaml_data = yaml_element.get_attribute("innerText")
 
         print(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
