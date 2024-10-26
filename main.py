@@ -366,6 +366,7 @@ def run(
     sonarr_endpoint,
     selected_folders=None,
     headless=True,
+    process_all=False,
 ):
     global cache, new_data, folder_bulk_data, root_folder
     print("Starting script...")
@@ -401,7 +402,10 @@ def run(
 
                 if media_type == "tv":
                     if tvdb_id is not None:
-                        if tvdb_id in curr_bulk_data.get("metadata", {}):
+                        if (
+                            tvdb_id in curr_bulk_data.get("metadata", {})
+                            and not process_all
+                        ):
                             if not ended:
                                 print(
                                     f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry.",
@@ -413,7 +417,7 @@ def run(
                                     f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry.",
                                 )
 
-                if tmdb_id in curr_bulk_data["metadata"]:
+                if tmdb_id in curr_bulk_data["metadata"] and not process_all:
                     already_processed = True
                     print(
                         f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml",
@@ -529,6 +533,11 @@ if __name__ == "__main__":
         type=str,
         help="Directory to copy the output files to",
     )
+    parser.add_argument(
+        "--process_all",
+        action=bool,
+        help="Process all items regardless of whether they have been processed before",
+    )
 
     args = parser.parse_args()
 
@@ -567,6 +576,11 @@ if __name__ == "__main__":
     output_dir = (
         args.output_dir if args.output_dir is not None else config.get("output_dir")
     )
+    process_all = (
+        args.process_all
+        if args.process_all is not None
+        else config.get("process_all", False)
+    )
 
     atexit.register(write_data_to_files)
 
@@ -583,4 +597,5 @@ if __name__ == "__main__":
             sonarr_endpoint,
             selected_folders,
             headless,
+            process_all,
         )

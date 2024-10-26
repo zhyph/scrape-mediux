@@ -37,36 +37,6 @@ This script automates the process of scraping movie and TV show poster data from
    pip install -r requirements.txt
    ```
 
-## Usage
-
-### Arguments
-
-- `root_folder`: Path to the folder containing subfolders with IMDb IDs.
-- `api_key`: Your TMDB API key.
-- `username` and `password`: Your Mediux login credentials.
-- `nickname`: Your Mediux user nickname visible after login.
-- `--profile_path` (optional): Path to a Chrome user data directory to persist login sessions.
-- `--folders` (optional): Specific folders to search for IMDb IDs.
-- `--headless` (optional): Run Selenium in headless mode.
-- `--verbose` (optional): Enable verbose output.
-
-### Running the Script
-
-#### Verbose Mode
-
-```bash
-python script_name.py "X:\media" your_tmdb_api_key your_mediux_username your_mediux_password "C:\Users\YourUsername\AppData\Local\Google\Chrome\User Data\Default" your_mediux_nickname --headless --verbose
-```
-
-### Output Files
-
-- `ppsh-bulk.txt`: Contains unique set URLs extracted from the YAML data.
-- `*_data.yml`: Folder-specific YAML data.
-
-### Handling Early Termination
-
-The script uses the `atexit` module to ensure that all processed data is saved to the appropriate files if the script is terminated early. This ensures no data is lost during an unexpected interruption.
-
 ## License
 
 none :D
