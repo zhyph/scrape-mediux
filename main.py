@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
 from tqdm import tqdm
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 CACHE_FILE = "./out/tmdb_cache.pkl"
 GLOBAL_TIMEOUT = 2
@@ -102,6 +103,7 @@ def get_imdb_ids(root_folder, selected_folders=None):
 
 
 # Fetch TMDB ID using IMDb ID with caching
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def fetch_tmdb_id(imdb_id, api_key, cache):
     if imdb_id in cache:
         print(f"\nFetching TMDB ID for IMDb ID {imdb_id} from cache.")
@@ -114,6 +116,7 @@ def fetch_tmdb_id(imdb_id, api_key, cache):
         "accept": "application/json",
     }
     response = requests.get(url, headers=headers)
+    response.raise_for_status()  # Raise an exception for HTTP errors
     data = response.json()
     if data.get("movie_results"):
         tmdb_id = data["movie_results"][0]["id"]
@@ -283,6 +286,7 @@ def load_bulk_data(bulk_data_file, only_set_urls=False):
 
 
 # Integrate with Sonarr API to check if the series is ongoing
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
@@ -290,6 +294,7 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
         "accept": "application/json",
     }
     response = requests.get(url, headers=headers)
+    response.raise_for_status()  # Raise an exception for HTTP errors
     data = response.json()
     if data and isinstance(data, list):
         series_info = data[0]
@@ -390,12 +395,20 @@ def run(
         # Use tqdm to create a progress bar
         for imdb_id, media_name in tqdm(imdb_ids, desc="Processing IMDb IDs"):
             already_processed = False
-            tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache)
+            try:
+                tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache)
+            except Exception as e:
+                print(f"Failed to fetch TMDB ID for IMDb ID {imdb_id}: {e}")
+                continue
 
             if media_type == "tv":
-                tvdb_id, ended = check_series_status(
-                    media_name, sonarr_api_key, sonarr_endpoint
-                )
+                try:
+                    tvdb_id, ended = check_series_status(
+                        media_name, sonarr_api_key, sonarr_endpoint
+                    )
+                except Exception as e:
+                    print(f"Failed to check series status for {media_name}: {e}")
+                    continue
 
             for folder in folder_map[imdb_id]:
                 curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
@@ -601,5 +614,4 @@ if __name__ == "__main__":
             )
     except Exception as e:
         print(f"Error: {e}")
-        write_data_to_files()
         exit(1)

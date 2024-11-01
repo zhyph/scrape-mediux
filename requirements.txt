@@ -5,3 +5,4 @@ ruamel.yaml
 croniter
 webdriver-manager
 tqdm
+tenacity
