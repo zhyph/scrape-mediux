@@ -583,19 +583,23 @@ if __name__ == "__main__":
     )
 
     atexit.register(write_data_to_files)
-
-    if cron_expression:
-        schedule_run(cron_expression)
-    else:
-        run(
-            api_key,
-            username,
-            password,
-            profile_path,
-            nickname,
-            sonarr_api_key,
-            sonarr_endpoint,
-            selected_folders,
-            headless,
-            process_all,
-        )
+    try:
+        if cron_expression:
+            schedule_run(cron_expression)
+        else:
+            run(
+                api_key,
+                username,
+                password,
+                profile_path,
+                nickname,
+                sonarr_api_key,
+                sonarr_endpoint,
+                selected_folders,
+                headless,
+                process_all,
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        write_data_to_files()
+        exit(1)
