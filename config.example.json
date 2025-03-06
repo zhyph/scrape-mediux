@@ -12,5 +12,6 @@
   "cron": "0 0 * * *",
   "output_dir": "",
   "process_all": false,
-  "TZ": "Etc/UTC"
+  "TZ": "Etc/UTC",
+  "chromedriver_path": ""
 }
