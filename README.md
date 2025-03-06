@@ -36,6 +36,8 @@ This script automates the process of scraping movie and TV show poster data from
 2. Install the required Python packages:
 
    ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
    pip install -r requirements.txt
    ```
 
@@ -46,12 +48,12 @@ Create a `config.json` file in the root directory of the project. You can use th
 ```json
 {
   "root_folder": "/path/to/root_folder",
-  "api_key": "your_tmdb_api_key",
+  "api_key": "your_tmdb_api_key", // THIS NEEDS TO BE YOUR "API Read Access Token" FROM https://www.themoviedb.org/settings/api
   "username": "your_mediux_username",
   "password": "your_mediux_password",
   "nickname": "your_mediux_nickname",
-  "folders": ["folder1", "folder2"],
-  "headless": true,
+  "folders": ["folder1", "folder2"], // USED TO SINGLE OUT FOLDERS
+  "headless": true, // ONLY DISABLE THIS TO DEBUG, WHEN USING AVOID MINIMIZING/CLOSING THE BROWSER, OTHERWISE KEEP THIS TRUE
   "sonarr_endpoint": "your_sonarr_endpoint",
   "sonarr_api_key": "your_sonarr_api_key",
   "output_dir": "/path/to/output_dir",
@@ -71,11 +73,17 @@ Run the script using the following command:
 python main.py --config_path /path/to/config
 ```
 
-### Command-line Arguments
+### Command-line Arguments (Optional)
+
+When running the script, you can ignore all the arguments, the only argument that may be used is `--config_path`, which is the path to the configuration file. The script will look for a `config.json` file in the specified directory.
+
+All arguments are optional, and if not provided, the script will use the default values from the `config.json` file.
+
+If any arguments are provided, they will override the corresponding values in the `config.json` file.
 
 - `--config_path`: Directory to the configuration file, defaults to `/config`.
 - `--root_folder`: Root folder containing subfolders with IMDb IDs.
-- `--api_key`: TMDB API key.
+- `--api_key`: TMDB API Read Access Token (not API Key).
 - `--username`: Mediux username.
 - `--password`: Mediux password.
 - `--nickname`: Mediux nickname.
