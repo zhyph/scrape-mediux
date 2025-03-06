@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
 from tqdm import tqdm
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 CACHE_FILE = "./out/tmdb_cache.pkl"
 GLOBAL_TIMEOUT = 2
@@ -36,29 +37,28 @@ yaml.allow_duplicate_keys = True
 
 
 # Initialize Selenium WebDriver
-def init_driver(headless=True, profile_path=None):
+def init_driver(headless=True, profile_path=None, chromedriver_path=None):
     print("Initializing WebDriver...")
-    chrome_options = Options()
+    options = Options()
     if headless:
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--remote-debugging-port=9222")
     if profile_path:
-        chrome_options.add_argument(f"--user-data-dir={profile_path}")
+        options.add_argument(f"--user-data-dir={profile_path}")
 
-    driver_path = ChromeDriverManager().install()
-    if driver_path:
-        driver_name = driver_path.split("/")[-1]
-        if driver_name != "chromedriver":
-            driver_path = "/".join(driver_path.split("/")[:-1] + ["chromedriver"])
-            os.chmod(driver_path, 0o755)
+    if chromedriver_path:
+        driver = webdriver.Chrome(
+            service=ChromeService(chromedriver_path), options=options
+        )
+    else:
+        driver = webdriver.Chrome(
+            service=ChromeService(ChromeDriverManager().install()), options=options
+        )
 
-    driver = webdriver.Chrome(
-        service=ChromeService(driver_path), options=chrome_options
-    )
     print("WebDriver initialized.")
     return driver
 
@@ -101,9 +101,10 @@ def get_imdb_ids(root_folder, selected_folders=None):
 
 
 # Fetch TMDB ID using IMDb ID with caching
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def fetch_tmdb_id(imdb_id, api_key, cache):
     if imdb_id in cache:
-        print(f"Fetching TMDB ID for IMDb ID {imdb_id} from cache.")
+        print(f"\nFetching TMDB ID for IMDb ID {imdb_id} from cache.")
         return cache[imdb_id]
 
     print(f"Fetching TMDB ID for IMDb ID {imdb_id} from TMDB API...")
@@ -113,6 +114,7 @@ def fetch_tmdb_id(imdb_id, api_key, cache):
         "accept": "application/json",
     }
     response = requests.get(url, headers=headers)
+    response.raise_for_status()  # Raise an exception for HTTP errors
     data = response.json()
     if data.get("movie_results"):
         tmdb_id = data["movie_results"][0]["id"]
@@ -139,6 +141,7 @@ def scrape_mediux(driver, tmdb_id, media_type):
 
     driver.get(url)
     try:
+        time.sleep(5)
         yaml_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (
@@ -154,10 +157,17 @@ def scrape_mediux(driver, tmdb_id, media_type):
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
-        yaml_data = ""
-        while not yaml_data.strip():
-            yaml_data = yaml_element.get_attribute("innerText")
-            time.sleep(0.5)
+
+        WebDriverWait(driver, 20).until_not(
+            EC.presence_of_element_located(
+                (
+                    By.XPATH,
+                    "//*[contains(text(), 'Updating')]",
+                )
+            )
+        )
+
+        yaml_data = yaml_element.get_attribute("innerText")
 
         print(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
@@ -274,6 +284,7 @@ def load_bulk_data(bulk_data_file, only_set_urls=False):
 
 
 # Integrate with Sonarr API to check if the series is ongoing
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
@@ -281,6 +292,7 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
         "accept": "application/json",
     }
     response = requests.get(url, headers=headers)
+    response.raise_for_status()  # Raise an exception for HTTP errors
     data = response.json()
     if data and isinstance(data, list):
         series_info = data[0]
@@ -357,6 +369,8 @@ def run(
     sonarr_endpoint,
     selected_folders=None,
     headless=True,
+    process_all=False,
+    chromedriver_path=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder
     print("Starting script...")
@@ -370,7 +384,9 @@ def run(
 
     imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders)
 
-    driver = init_driver(headless, profile_path)
+    driver = init_driver(headless, profile_path, chromedriver_path)
+
+    updated_titles = []  # List to store updated titles
 
     try:
         login_mediux(driver, username, password, nickname)
@@ -378,19 +394,30 @@ def run(
         # Use tqdm to create a progress bar
         for imdb_id, media_name in tqdm(imdb_ids, desc="Processing IMDb IDs"):
             already_processed = False
-            tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache)
+            try:
+                tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache)
+            except Exception as e:
+                print(f"Failed to fetch TMDB ID for IMDb ID {imdb_id}: {e}")
+                continue
 
             if media_type == "tv":
-                tvdb_id, ended = check_series_status(
-                    media_name, sonarr_api_key, sonarr_endpoint
-                )
+                try:
+                    tvdb_id, ended = check_series_status(
+                        media_name, sonarr_api_key, sonarr_endpoint
+                    )
+                except Exception as e:
+                    print(f"Failed to check series status for {media_name}: {e}")
+                    continue
 
             for folder in folder_map[imdb_id]:
                 curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
                 if media_type == "tv":
                     if tvdb_id is not None:
-                        if tvdb_id in curr_bulk_data.get("metadata", {}):
+                        if (
+                            tvdb_id in curr_bulk_data.get("metadata", {})
+                            and not process_all
+                        ):
                             if not ended:
                                 print(
                                     f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry.",
@@ -402,7 +429,7 @@ def run(
                                     f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry.",
                                 )
 
-                if tmdb_id in curr_bulk_data["metadata"]:
+                if tmdb_id in curr_bulk_data["metadata"] and not process_all:
                     already_processed = True
                     print(
                         f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml",
@@ -423,11 +450,21 @@ def run(
                 for folder in folder_map[imdb_id]:
                     new_data[folder][tmdb_id] = yaml_data
 
+                updated_titles.append(media_name)  # Add the title to the list
+
                 time.sleep(GLOBAL_TIMEOUT)
     finally:
         print("Quitting driver...")
         driver.quit()
         print("Script finished.")
+
+        # Print the list of updated titles
+        if updated_titles:
+            print("Updated Titles:")
+            for title in updated_titles:
+                print(f"- {title}")
+        else:
+            print("No titles were updated.")
 
 
 def schedule_run(cron_expression):
@@ -508,10 +545,23 @@ if __name__ == "__main__":
         type=str,
         help="Directory to copy the output files to",
     )
+    parser.add_argument(
+        "--process_all",
+        action=argparse.BooleanOptionalAction,
+        help="Process all items regardless of whether they have been processed before",
+    )
+    parser.add_argument(
+        "--chromedriver_path",
+        type=str,
+        help="Path to the ChromeDriver executable",
+    )
 
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+
+    if "TZ" in config:
+        os.environ["TZ"] = config["TZ"]
 
     # Prioritize command-line arguments, fall back to config values only if args are not provided or are empty
     root_folder = (
@@ -546,20 +596,35 @@ if __name__ == "__main__":
     output_dir = (
         args.output_dir if args.output_dir is not None else config.get("output_dir")
     )
+    process_all = (
+        args.process_all
+        if args.process_all is not None
+        else config.get("process_all", False)
+    )
+    chromedriver_path = (
+        args.chromedriver_path
+        if args.chromedriver_path is not None
+        else config.get("chromedriver_path")
+    )
 
     atexit.register(write_data_to_files)
-
-    if cron_expression:
-        schedule_run(cron_expression)
-    else:
-        run(
-            api_key,
-            username,
-            password,
-            profile_path,
-            nickname,
-            sonarr_api_key,
-            sonarr_endpoint,
-            selected_folders,
-            headless,
-        )
+    try:
+        if cron_expression:
+            schedule_run(cron_expression)
+        else:
+            run(
+                api_key,
+                username,
+                password,
+                profile_path,
+                nickname,
+                sonarr_api_key,
+                sonarr_endpoint,
+                selected_folders,
+                headless,
+                process_all,
+                chromedriver_path,
+            )
+    except Exception as e:
+        print(f"Error: {e}")
+        exit(1)
