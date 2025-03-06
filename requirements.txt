@@ -1,5 +1,5 @@
 requests
-selenium==4.25.0
+selenium
 webdriver-manager
 ruamel.yaml
 croniter

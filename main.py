@@ -37,30 +37,28 @@ yaml.allow_duplicate_keys = True
 
 
 # Initialize Selenium WebDriver
-def init_driver(headless=True, profile_path=None):
+def init_driver(headless=True, profile_path=None, chromedriver_path=None):
     print("Initializing WebDriver...")
-    chrome_options = Options()
+    options = Options()
     if headless:
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--remote-debugging-port=9222")
     if profile_path:
-        chrome_options.add_argument(f"--user-data-dir={profile_path}")
+        options.add_argument(f"--user-data-dir={profile_path}")
 
-    driver_path = ChromeDriverManager().install()
-    if driver_path:
-        driver_name = driver_path.split("/")[-1]
-        if driver_name != "chromedriver":
-            driver_path = "/".join(driver_path.split("/")[:-1] + ["chromedriver"])
-            os.chmod(driver_path, 0o755)
+    if chromedriver_path:
+        driver = webdriver.Chrome(
+            service=ChromeService(chromedriver_path), options=options
+        )
+    else:
+        driver = webdriver.Chrome(
+            service=ChromeService(ChromeDriverManager().install()), options=options
+        )
 
-    driver = webdriver.Chrome(
-        service=ChromeService(driver_path), options=chrome_options
-    )
-    # driver = webdriver.Chrome(options=chrome_options)
     print("WebDriver initialized.")
     return driver
 
@@ -372,6 +370,7 @@ def run(
     selected_folders=None,
     headless=True,
     process_all=False,
+    chromedriver_path=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder
     print("Starting script...")
@@ -385,7 +384,7 @@ def run(
 
     imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders)
 
-    driver = init_driver(headless, profile_path)
+    driver = init_driver(headless, profile_path, chromedriver_path)
 
     updated_titles = []  # List to store updated titles
 
@@ -551,10 +550,18 @@ if __name__ == "__main__":
         action=argparse.BooleanOptionalAction,
         help="Process all items regardless of whether they have been processed before",
     )
+    parser.add_argument(
+        "--chromedriver_path",
+        type=str,
+        help="Path to the ChromeDriver executable",
+    )
 
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+
+    if "TZ" in config:
+        os.environ["TZ"] = config["TZ"]
 
     # Prioritize command-line arguments, fall back to config values only if args are not provided or are empty
     root_folder = (
@@ -594,6 +601,11 @@ if __name__ == "__main__":
         if args.process_all is not None
         else config.get("process_all", False)
     )
+    chromedriver_path = (
+        args.chromedriver_path
+        if args.chromedriver_path is not None
+        else config.get("chromedriver_path")
+    )
 
     atexit.register(write_data_to_files)
     try:
@@ -611,6 +623,7 @@ if __name__ == "__main__":
                 selected_folders,
                 headless,
                 process_all,
+                chromedriver_path,
             )
     except Exception as e:
         print(f"Error: {e}")

@@ -6,8 +6,11 @@
   "nickname": "",
   "profile_path": "",
   "folders": [],
-  "headless": true,
-  "verbose": true,
+  "headless": false,
   "sonarr_endpoint": "",
-  "sonarr_api_key": ""
+  "sonarr_api_key": "",
+  "cron": "0 0 * * *",
+  "output_dir": "",
+  "process_all": false,
+  "TZ": "Etc/UTC"
 }
