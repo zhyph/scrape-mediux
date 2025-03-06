@@ -17,3 +17,5 @@ services:
     working_dir: /app
     restart: unless-stopped
     command: ['python', '-u', 'main.py']
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"

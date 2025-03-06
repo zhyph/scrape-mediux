@@ -548,7 +548,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--process_all",
-        type=bool,
+        action=argparse.BooleanOptionalAction,
         help="Process all items regardless of whether they have been processed before",
     )
 
