@@ -12,10 +12,6 @@ services:
       - .:/app
       - ./:/config
       - ./out:/app/out
-      - /nfs/truenas/data/media:/media
-      - /docker/appdata/kometa/config/metadata/:/out
     working_dir: /app
     restart: unless-stopped
     command: ['python', '-u', 'main.py']
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
