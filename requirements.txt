@@ -3,6 +3,5 @@ selenium
 webdriver-manager
 ruamel.yaml
 croniter
-webdriver-manager
 tqdm
 tenacity
