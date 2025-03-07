@@ -72,10 +72,10 @@ def load_config(config_path):
     return {}
 
 
-# Get IMDb IDs from folder names
-def get_imdb_ids(root_folder, selected_folders=None):
-    print("Fetching IMDb IDs from folder names...")
-    imdb_ids = []
+# Get media IDs from folder names
+def get_media_ids(root_folder, selected_folders=None):
+    print("Fetching media IDs from folder names...")
+    media_ids = []
     folder_map = defaultdict(list)
     folders_to_search = (
         selected_folders if selected_folders else os.listdir(root_folder)
@@ -89,26 +89,61 @@ def get_imdb_ids(root_folder, selected_folders=None):
             for subfolder in subfolders:
                 subfolder_path = os.path.join(folder_path, subfolder)
                 if os.path.isdir(subfolder_path):
-                    match = re.search(r"imdb-(tt\d+)", subfolder)
-                    name_match = re.search(r"(.+?)(?=\{imdb-)", subfolder)
-                    if match and name_match:
-                        imdb_id = match.group(1)
+                    imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
+                    tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
+                    tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
+                    name_match = re.search(r"(.+?)(?=\{(imdb|tvdb|tmdb)-)", subfolder)
+                    if imdb_match and name_match:
+                        media_id = imdb_match.group(1)
                         media_name = name_match.group(1).strip()
-                        imdb_ids.append((imdb_id, media_name))
-                        folder_map[imdb_id].append(folder)
-    print(f"Found IMDb IDs: {imdb_ids}")
-    return imdb_ids, folder_map
+                        external_source = "imdb_id"
+                    elif tvdb_match and name_match:
+                        media_id = tvdb_match.group(1)
+                        media_name = name_match.group(1).strip()
+                        external_source = "tvdb_id"
+                    elif tmdb_match and name_match:
+                        media_id = tmdb_match.group(1)
+                        media_name = name_match.group(1).strip()
+                        external_source = "tmdb_id"
+                    else:
+                        continue
+                    media_ids.append((media_id, media_name, external_source))
+                    folder_map[media_id].append(folder)
+    print(f"Found media IDs: {media_ids}")
+    return media_ids, folder_map
 
 
-# Fetch TMDB ID using IMDb ID with caching
+# Fetch TMDB ID using media ID with caching
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def fetch_tmdb_id(imdb_id, api_key, cache):
-    if imdb_id in cache:
-        print(f"\nFetching TMDB ID for IMDb ID {imdb_id} from cache.")
-        return cache[imdb_id]
+def fetch_tmdb_id(media_id, external_source, api_key, cache):
+    if external_source == "tmdb_id":
+        print(f"\nUsing TMDB ID {media_id} directly.")
+        # Check if the TMDB ID is a movie or a TV show
+        url = f"https://api.themoviedb.org/3/movie/{media_id}"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "accept": "application/json",
+        }
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return media_id, "movie"
+        elif response.status_code == 404:
+            url = f"https://api.themoviedb.org/3/tv/{media_id}"
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                return media_id, "tv"
+            else:
+                print(f"TMDB ID {media_id} not found as movie or TV show.")
+                return None, None
+        else:
+            response.raise_for_status()
 
-    print(f"Fetching TMDB ID for IMDb ID {imdb_id} from TMDB API...")
-    url = f"https://api.themoviedb.org/3/find/{imdb_id}?external_source=imdb_id"
+    if media_id in cache:
+        print(f"\nFetching TMDB ID for {external_source} {media_id} from cache.")
+        return cache[media_id]
+
+    print(f"\nFetching TMDB ID for {external_source} {media_id} from TMDB API...")
+    url = f"https://api.themoviedb.org/3/find/{media_id}?external_source={external_source}"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "accept": "application/json",
@@ -125,8 +160,10 @@ def fetch_tmdb_id(imdb_id, api_key, cache):
     else:
         tmdb_id, media_type = None, None
 
-    cache[imdb_id] = (tmdb_id, media_type)
-    print(f"TMDB ID for IMDb ID {imdb_id}: {tmdb_id}, Media Type: {media_type}")
+    cache[media_id] = (tmdb_id, media_type)
+    print(
+        f"TMDB ID for {external_source} {media_id}: {tmdb_id}, Media Type: {media_type}"
+    )
     return tmdb_id, media_type
 
 
@@ -165,6 +202,11 @@ def scrape_mediux(driver, tmdb_id, media_type):
                     "//*[contains(text(), 'Updating')]",
                 )
             )
+        )
+
+        # Wait for the text to be populated in the code element
+        WebDriverWait(driver, 20).until(
+            lambda d: yaml_element.get_attribute("innerText").strip() != ""
         )
 
         yaml_data = yaml_element.get_attribute("innerText")
@@ -382,7 +424,7 @@ def run(
         if os.path.isdir(os.path.join(root_folder, folder))
     }
 
-    imdb_ids, folder_map = get_imdb_ids(root_folder, selected_folders)
+    media_ids, folder_map = get_media_ids(root_folder, selected_folders)
 
     driver = init_driver(headless, profile_path, chromedriver_path)
 
@@ -392,12 +434,16 @@ def run(
         login_mediux(driver, username, password, nickname)
 
         # Use tqdm to create a progress bar
-        for imdb_id, media_name in tqdm(imdb_ids, desc="Processing IMDb IDs"):
+        for media_id, media_name, external_source in tqdm(
+            media_ids, desc="Processing media IDs"
+        ):
             already_processed = False
             try:
-                tmdb_id, media_type = fetch_tmdb_id(imdb_id, api_key, cache)
+                tmdb_id, media_type = fetch_tmdb_id(
+                    media_id, external_source, api_key, cache
+                )
             except Exception as e:
-                print(f"Failed to fetch TMDB ID for IMDb ID {imdb_id}: {e}")
+                print(f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}")
                 continue
 
             if media_type == "tv":
@@ -409,7 +455,7 @@ def run(
                     print(f"Failed to check series status for {media_name}: {e}")
                     continue
 
-            for folder in folder_map[imdb_id]:
+            for folder in folder_map[media_id]:
                 curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
                 if media_type == "tv":
@@ -439,7 +485,7 @@ def run(
                 continue
 
             print(
-                f"IMDb ID: {imdb_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}",
+                f"Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}",
             )
             if tmdb_id:
                 yaml_data = scrape_mediux(driver, tmdb_id, media_type)
@@ -447,7 +493,7 @@ def run(
                     print(f"No YAML data found for TMDB ID {tmdb_id}.")
                     continue
 
-                for folder in folder_map[imdb_id]:
+                for folder in folder_map[media_id]:
                     new_data[folder][tmdb_id] = yaml_data
 
                 updated_titles.append(media_name)  # Add the title to the list

@@ -16,13 +16,13 @@ This script automates the process of scraping movie and TV show poster data from
 ## Requirements
 
 - Python 3.x
-- Selenium
-- Requests
-- WebDriver Manager
-- ruamel.yaml
-- croniter
-- tqdm
-- tenacity
+
+Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
+
+- [Movies](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/#plex)
+- [TV Shows](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/#optional-plex)
+
+By default, it will only process the folders with Plex naming scheme (open a feature request if you wish to add a new type).
 
 ## Installation
 
