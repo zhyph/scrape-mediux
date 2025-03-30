@@ -1,17 +1,10 @@
 services:
-  mediux-scraper:
-    build: .
-    image: mediux-scraper
-    container_name: mediux-scraper
+  scrape-mediux:
+    image: docker.io/zhyph/scrape-mediux
+    container_name: scrape-mediux
     environment:
-      - DISPLAY=:99
-      - TZ=Etc/UTC
-      - PUID=1000
-      - PGID=1000
+      - TZ=Etc/UTC # Set your timezone
     volumes:
-      - .:/app
-      - ./:/config
-      - ./out:/app/out
-    working_dir: /app
-    restart: unless-stopped
-    command: ['python', '-u', 'main.py']
+      - /path/to/config:/config # REQUIRED
+      - /path/to/media:/data # REQUIRED, root_folder in config.json (or args) must match this
+      - /path/to/kometa/metadata:/out # OPTIONAL, output_dir in config.json (or args) must match this

@@ -10,12 +10,13 @@ This script automates the process of scraping movie and TV show poster data from
 - **Extracts and saves** unique Mediux set URLs to a text file.
 - **Handles early termination** and ensures all processed data is saved.
 - **Outputs files for kometa and plex-poster-set-helper**
-  - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your plex library.
-  - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your plex library, if you are interested check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux) for more information.
+  - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your Plex library.
+  - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your Plex library. For more information, check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux).
 
 ## Requirements
 
-- Python >=3.9
+- Python >=3.9 (if running locally)
+- Docker (if running in a container)
 
 Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
 
@@ -24,7 +25,7 @@ Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guide
 
 By default, it will only process the folders with Plex naming scheme (open a feature request if you wish to add a new type).
 
-## Installation
+## Installation (Local)
 
 1. Clone the repository:
 
@@ -91,7 +92,7 @@ cp config.example.json config.json
 - **`TZ`**: The timezone to use for scheduling and logging. This can also be passed as an environment variable.
 - **`chromedriver_path`**: The path to the ChromeDriver executable. If omitted, the script will use `webdriver-manager` to automatically download and manage ChromeDriver.
 
-## Usage
+## Usage (Local)
 
 Run the script using the following command:
 
@@ -123,6 +124,47 @@ If any arguments are provided, they will override the corresponding values in th
 - `--process_all`: Process all items regardless of whether they have been processed before.
 - `--chromedriver_path`: Path to the ChromeDriver executable.
 
-## License
+## Usage (Docker)
 
-none :D
+You can run the scraper using Docker. A prebuilt image is available on Docker Hub.
+
+### Docker Compose
+
+It's recommended to use this script with cron when running in Docker. (Just modify the `cron` field in the `config.json` file to your desired schedule.)
+
+Here’s an example `docker-compose.yml` file (also available in the repository):
+
+```yaml
+services:
+  scrape-mediux:
+    image: docker.io/zhyph/scrape-mediux
+    container_name: scrape-mediux
+    environment:
+      - TZ=Etc/UTC # Set your timezone
+    volumes:
+      - /path/to/config:/config # REQUIRED
+      - /path/to/media:/data # REQUIRED, root_folder in config.json (or args) must match this
+      - /path/to/kometa/metadata:/out # OPTIONAL, output_dir in config.json (or args) must match this
+```
+
+### Running with Docker Compose
+
+1. Create a `config.json` file in the `/path/to/config` directory. Use the `config.example.json` as a template.
+2. Update the `docker-compose.yml` file with the correct paths for your configuration, media, and output directories.
+3. Start the container:
+
+   ```bash
+   docker-compose up -d
+   ```
+
+4. Check the logs to ensure the scraper is running (check if the timezone is correct and the `Time Now` is correct):
+
+   ```bash
+   docker logs -f scrape-mediux
+   ```
+
+5. If running in cron mode, you can execute the script manually and omit the cron argument:
+
+   ```bash
+   docker exec -it scrape-mediux python main.py --cron ''
+   ```

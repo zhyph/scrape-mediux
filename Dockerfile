@@ -1,32 +1,27 @@
-# Use the official Python image from the Docker Hub
 FROM python:3.12-slim
 
-# Copy and Set the working directory
-COPY . /app
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+ENV PIP_NO_CACHE_DIR=1
+
 WORKDIR /app
 
-RUN rm -fr /app/.git /app/out/* /app/*venv /app/config.json
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  wget unzip curl gnupg ca-certificates \
+  fonts-liberation libatk-bridge2.0-0 libatk1.0-0 \
+  libatspi2.0-0 libxkbcommon-x11-0 libxcomposite1 \
+  libxrandr2 libgbm1 libgtk-3-0 libpangocairo-1.0-0 \
+  libnss3 libasound2 x11-utils && \
+  mkdir -p /etc/apt/keyrings && \
+  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | tee /etc/apt/keyrings/google-chrome.asc > /dev/null && \
+  echo "deb [signed-by=/etc/apt/keyrings/google-chrome.asc] http://dl.google.com/linux/chrome/deb/ stable main" | tee /etc/apt/sources.list.d/google-chrome.list && \
+  apt-get update && apt-get install -y --no-install-recommends google-chrome-stable && \
+  rm -rf /var/lib/apt/lists/*
 
-# Install system dependencies
-RUN apt-get update && \
-  apt-get install -y wget unzip curl gnupg
+COPY requirements.txt .
+COPY main.py .
+COPY config.example.json .
 
-# Install Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-  sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' && \
-  apt-get update && \
-  apt-get install -y google-chrome-stable
-
-# Install ChromeDriver
-RUN CHROMEDRIVER_VERSION=`curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE` && \
-  wget -O /tmp/chromedriver.zip https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip && \
-  unzip /tmp/chromedriver.zip chromedriver -d /usr/local/bin/
-
-# Set display port to avoid crash
-ENV DISPLAY=:99
-
-# Copy the requirements.txt file and install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Command to run the script
 CMD ["python", "-u", "main.py"]
