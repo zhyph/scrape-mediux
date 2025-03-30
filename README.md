@@ -15,7 +15,7 @@ This script automates the process of scraping movie and TV show poster data from
 
 ## Requirements
 
-- Python 3.x
+- Python >=3.9
 
 Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
 
