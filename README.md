@@ -45,25 +45,51 @@ By default, it will only process the folders with Plex naming scheme (open a fea
 
 Create a `config.json` file in the root directory of the project. You can use the `config.example.json` as a template. The configuration file should include the following fields:
 
+### Copy Example Configuration
+
+```bash
+cp config.example.json config.json
+```
+
+### Configuration Fields
+
 ```json
 {
   "root_folder": "/path/to/root_folder",
-  "api_key": "your_tmdb_api_key", // THIS NEEDS TO BE YOUR "API Read Access Token" FROM https://www.themoviedb.org/settings/api
+  "api_key": "your_tmdb_api_key",
   "username": "your_mediux_username",
   "password": "your_mediux_password",
   "nickname": "your_mediux_nickname",
-  "folders": ["folder1", "folder2"], // USED TO SINGLE OUT FOLDERS
-  "headless": true, // ONLY DISABLE THIS TO DEBUG, WHEN USING AVOID MINIMIZING/CLOSING THE BROWSER, OTHERWISE KEEP THIS TRUE
+  "folders": ["folder1", "folder2"],
+  "headless": true,
   "sonarr_endpoint": "your_sonarr_endpoint",
   "sonarr_api_key": "your_sonarr_api_key",
   "output_dir": "/path/to/output_dir",
-  "profile_path": "/path/to/chrome_profile", // CAN BE OMITTED, WILL USE THE DEFAULT BROWSER PROFILE
-  "cron": "cron_expression", // CAN BE OMITTED
-  "process_all": false, // USE IF YOU WANT TO PROCESS ALL ITEMS, IGNORING PREVIOUSLY PROCESSED/CACHED ITEMS
-  "TZ": "your_timezone", // CAN BE PASSED AS ENV VARIABLE, MOSTLY USED FOR CRON
-  "chromedriver_path": "/path/to/chromedriver" // CAN BE OMITTED, WILL USE webdriver-manager INSTEAD
+  "profile_path": "/path/to/chrome_profile",
+  "cron": "cron_expression",
+  "process_all": false,
+  "TZ": "your_timezone",
+  "chromedriver_path": "/path/to/chromedriver"
 }
 ```
+
+### Field Descriptions
+
+- **`root_folder`**: The root folder containing subfolders with IMDb IDs. This is the directory where your media folders are located.
+- **`api_key`**: Your TMDB API Read Access Token. You can find this in your [TMDB account settings](https://www.themoviedb.org/settings/api).
+- **`username`**: Your Mediux username used for logging into the Mediux website.
+- **`password`**: Your Mediux password used for logging into the Mediux website.
+- **`nickname`**: Your Mediux nickname, which is displayed after logging in.
+- **`folders`**: A list of specific folders to process. If left empty, all folders in the `root_folder` will be processed.
+- **`headless`**: A boolean value (`true` or `false`) to determine whether Selenium should run in headless mode. Set to `false` for debugging, but avoid minimizing or closing the browser during execution.
+- **`sonarr_endpoint`**: The endpoint URL for your Sonarr instance. This is used to check the status of TV series.
+- **`sonarr_api_key`**: The API key for your Sonarr instance, used for authentication.
+- **`output_dir`**: The directory where output files will be saved. This is where the script will store the generated YAML and text files.
+- **`profile_path`**: The path to your Chrome user profile. If omitted, the default browser profile will be used.
+- **`cron`**: A cron expression for scheduling the script. If omitted, the script will not run on a schedule.
+- **`process_all`**: A boolean value (`true` or `false`) to determine whether to process all items, ignoring previously processed or cached items.
+- **`TZ`**: The timezone to use for scheduling and logging. This can also be passed as an environment variable.
+- **`chromedriver_path`**: The path to the ChromeDriver executable. If omitted, the script will use `webdriver-manager` to automatically download and manage ChromeDriver.
 
 ## Usage
 
