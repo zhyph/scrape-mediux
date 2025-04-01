@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - '*'
   pull_request:
     branches:
       - master
@@ -22,14 +23,18 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
+      - name: Build and Tag Docker image
         run: |
           IMAGE_TAG=${{ github.ref_name }}
           docker build -t docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:${IMAGE_TAG} .
-          docker tag docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:${IMAGE_TAG} docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:latest
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker tag docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:${IMAGE_TAG} docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:latest
+          fi
 
       - name: Push Docker image
         run: |
           IMAGE_TAG=${{ github.ref_name }}
           docker push docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:${IMAGE_TAG}
-          docker push docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:latest
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            docker push docker.io/${{ secrets.DOCKER_USERNAME }}/scrape-mediux:latest
+          fi
