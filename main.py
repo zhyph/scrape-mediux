@@ -21,6 +21,7 @@ from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 
@@ -539,74 +540,77 @@ def run(
     try:
         login_mediux(driver, username, password, nickname)
 
-        # Use tqdm to create a progress bar
-        for media_id, media_name, external_source in tqdm(
-            media_ids, desc="Processing media IDs"
-        ):
-            already_processed = False
-            try:
-                tmdb_id, media_type = fetch_tmdb_id(
-                    media_id, external_source, api_key, cache
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}"
-                )
-                continue
-
-            if media_type == "tv":
+        # Use tqdm to create a progress bar and ensure it stays at the bottom
+        with logging_redirect_tqdm():
+            for media_id, media_name, external_source in tqdm(
+                media_ids, desc="Processing media IDs"
+            ):
+                already_processed = False
                 try:
-                    tvdb_id, ended = check_series_status(
-                        media_name, sonarr_api_key, sonarr_endpoint
+                    tmdb_id, media_type = fetch_tmdb_id(
+                        media_id, external_source, api_key, cache
                     )
                 except Exception as e:
-                    logger.error(f"Failed to check series status for {media_name}: {e}")
+                    logger.error(
+                        f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}"
+                    )
                     continue
-
-            for folder in folder_map[media_id]:
-                curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
                 if media_type == "tv":
-                    if tvdb_id is not None:
-                        if (
-                            tvdb_id in curr_bulk_data.get("metadata", {})
-                            and not process_all
-                        ):
-                            if not ended:
-                                logger.info(
-                                    f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
-                                )
-                                del curr_bulk_data["metadata"][tvdb_id]
-                            else:
-                                already_processed = True
-                                logger.info(
-                                    f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
-                                )
-
-                if tmdb_id in curr_bulk_data["metadata"] and not process_all:
-                    already_processed = True
-                    logger.info(
-                        f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
-                    )
-
-            if already_processed:
-                continue
-
-            logger.info(
-                f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
-            )
-            if tmdb_id:
-                yaml_data = scrape_mediux(driver, tmdb_id, media_type)
-                if not yaml_data:
-                    logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
-                    continue
+                    try:
+                        tvdb_id, ended = check_series_status(
+                            media_name, sonarr_api_key, sonarr_endpoint
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to check series status for {media_name}: {e}"
+                        )
+                        continue
 
                 for folder in folder_map[media_id]:
-                    new_data[folder][tmdb_id] = yaml_data
+                    curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
-                updated_titles.append(media_name)  # Add the title to the list
+                    if media_type == "tv":
+                        if tvdb_id is not None:
+                            if (
+                                tvdb_id in curr_bulk_data.get("metadata", {})
+                                and not process_all
+                            ):
+                                if not ended:
+                                    logger.info(
+                                        f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
+                                    )
+                                    del curr_bulk_data["metadata"][tvdb_id]
+                                else:
+                                    already_processed = True
+                                    logger.info(
+                                        f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
+                                    )
 
-                time.sleep(GLOBAL_TIMEOUT)
+                    if tmdb_id in curr_bulk_data["metadata"] and not process_all:
+                        already_processed = True
+                        logger.info(
+                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
+                        )
+
+                if already_processed:
+                    continue
+
+                logger.info(
+                    f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
+                )
+                if tmdb_id:
+                    yaml_data = scrape_mediux(driver, tmdb_id, media_type)
+                    if not yaml_data:
+                        logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
+                        continue
+
+                    for folder in folder_map[media_id]:
+                        new_data[folder][tmdb_id] = yaml_data
+
+                    updated_titles.append(media_name)  # Add the title to the list
+
+                    time.sleep(GLOBAL_TIMEOUT)
     finally:
         logger.info("Quitting WebDriver...")
         driver.quit()
