@@ -299,53 +299,69 @@ def scrape_mediux(driver, tmdb_id, media_type):
         return yaml_data
     except Exception as e:
         logger.error(
-            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML: {e}"
+            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\nThis can be normal, but, if this ID had an YAML to be extracted and the script failed, create an issue in the script Github:\n {e}"
         )
         return ""
 
 
 # Extract set URLs from YAML data
 def extract_set_urls(yaml_data):
-    logger.info("Extracting set URLs from YAML data...")
+    # Extract set URLs without logging each step
     set_urls = set()
     lines = yaml_data.split("\n")
     for line in lines:
         match = re.search(r"#.*(https://mediux.pro/sets/\d+)", line)
         if match:
             set_urls.add(match.group(1))
-            logger.debug(f"Found set URL: {match.group(1)}")
-    logger.info(f"Extracted {len(set_urls)} set URLs.")
     return set_urls
 
 
 # Login to Mediux website (if not already logged in)
 def login_mediux(driver, username, password, nickname):
-    logger.info("Logging into Mediux...")
+    logger.info("Checking login status on Mediux...")
     base_url = "https://mediux.pro"
     driver.get(base_url)
     try:
-        time.sleep(GLOBAL_TIMEOUT)
-        login_button = driver.find_element(
-            By.XPATH, "//button[contains(text(), 'Sign In')]"
+        # Check if the user is already logged in by looking for the nickname
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (By.XPATH, f"//button[contains(text(), '{nickname}')]")
+            )
+        )
+        logger.info(f"User '{nickname}' is already logged in.")
+        return  # Exit the function if the user is already logged in
+    except Exception:
+        logger.info("User is not logged in. Proceeding with login...")
+
+    try:
+        # Locate and click the "Sign In" button
+        login_button = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//button[contains(text(), 'Sign In')]")
+            )
         )
         login_button.click()
         logger.debug("Clicked on 'Sign In' button.")
 
+        # Wait for the login form to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, ":r0:-form-item"))
         )
         logger.debug("Login form loaded.")
 
+        # Enter username and password
         username_field = driver.find_element(By.ID, ":r0:-form-item")
         password_field = driver.find_element(By.ID, ":r1:-form-item")
         username_field.send_keys(username)
         password_field.send_keys(password)
         logger.debug("Entered username and password.")
 
+        # Submit the login form
         submit_button = driver.find_element(By.XPATH, "//form/button")
         submit_button.click()
         logger.debug("Clicked on 'Submit' button.")
 
+        # Wait for the nickname to appear, indicating a successful login
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.XPATH, f"//button[contains(text(), '{nickname}')]")
@@ -354,6 +370,7 @@ def login_mediux(driver, username, password, nickname):
         logger.info("Logged into Mediux successfully.")
     except Exception as e:
         logger.error(f"Failed to log into Mediux: {e}")
+        raise
 
 
 # Load cache from file
@@ -449,12 +466,13 @@ def write_data_to_files():
 
     for root in root_folders:
         for folder in os.listdir(root):
-            logger.debug(f"Checking folder: {folder}")
             folder_path = os.path.join(root, folder)
-            logger.debug(f"Folder path: {folder_path}")
             if os.path.isdir(folder_path):
                 file_path = f"./out/kometa/{folder}_data.yml"
                 existing_urls.update(load_bulk_data(file_path, True))
+
+    updated_files = []  # Track updated files
+    total_urls_extracted = 0  # Track total URLs extracted
 
     for folder, data in new_data.items():
         file_name = f"./out/kometa/{folder}_data.yml"
@@ -470,10 +488,15 @@ def write_data_to_files():
             existing_data["metadata"].update(yaml.load(yaml_data))
             urls = extract_set_urls(yaml_data)
             existing_urls.update(urls)
+            total_urls_extracted += len(urls)
 
         with open(file_name, "w", encoding="utf-8") as f:
             yaml.dump(existing_data, f)
-        logger.info(f"Data updated in {file_name}.")
+        updated_files.append(file_name)
+
+    # Summarize updates
+    logger.info(f"Updated {len(updated_files)} files: {', '.join(updated_files)}")
+    logger.info(f"Extracted a total of {total_urls_extracted} unique set URLs.")
 
     with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
         for url in sorted(existing_urls):
