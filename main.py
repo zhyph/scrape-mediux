@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.remote.webdriver import WebDriver
 from webdriver_manager.chrome import ChromeDriverManager
 from ruamel.yaml import YAML
 from datetime import datetime
@@ -52,6 +53,7 @@ cache = {}
 folder_bulk_data = {}
 root_folder = ""
 output_dir = None
+config_path = None
 
 yaml = YAML()
 yaml.allow_duplicate_keys = True
@@ -84,6 +86,23 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
     except Exception as e:
         logger.error(f"Failed to initialize WebDriver: {e}")
         raise
+
+
+def take_screenshot(driver: WebDriver, name: str):
+    screenshot_enabled = os.environ.get("SCREENSHOT") == "1" or config.get(
+        "screenshot", False
+    )
+    if not screenshot_enabled:
+        return
+
+    screenshots_dir = os.path.join(config_path, "screenshots")
+    os.makedirs(screenshots_dir, exist_ok=True)
+    screenshot_path = os.path.join(screenshots_dir, f"{name}.png")
+    try:
+        driver.save_screenshot(screenshot_path)
+        logger.info(f"Screenshot saved: {screenshot_path}")
+    except Exception as e:
+        logger.error(f"Failed to save screenshot: {e}")
 
 
 def validate_path(path, description="Path"):
@@ -254,16 +273,14 @@ def scrape_mediux(driver, tmdb_id, media_type):
         url = f"{base_url}/shows/{tmdb_id}"
 
     driver.get(url)
+
     try:
         yaml_button = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    "//button[span[contains(text(), 'YAML')]]",
-                )
+            EC.element_to_be_clickable(
+                (By.XPATH, "//button[span[contains(text(), 'YAML')]]")
             )
         )
-
+        driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
 
         yaml_element = WebDriverWait(driver, 20).until(
@@ -272,10 +289,7 @@ def scrape_mediux(driver, tmdb_id, media_type):
 
         WebDriverWait(driver, 20).until_not(
             EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    "//*[contains(text(), 'Updating')]",
-                )
+                (By.XPATH, "//*[contains(text(), 'Updating')]")
             )
         )
 
@@ -284,12 +298,14 @@ def scrape_mediux(driver, tmdb_id, media_type):
         )
 
         yaml_data = yaml_element.get_attribute("innerText")
-
         logger.info(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
     except Exception as e:
+        take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
-            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\nThis can be normal, but, if this ID had an YAML to be extracted and the script failed, create an issue in the script Github\n{e}"
+            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\n"
+            f"This can be normal, but, if this ID had an YAML to be extracted and the script failed, "
+            f"create an issue in the script Github\n{e}"
         )
         return ""
 
@@ -309,8 +325,8 @@ def login_mediux(driver, username, password, nickname):
     logger.info("Checking login status on Mediux...")
     base_url = "https://mediux.pro"
     driver.get(base_url)
-    try:
 
+    try:
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
                 (By.XPATH, f"//button[contains(text(), '{nickname}')]")
@@ -322,7 +338,6 @@ def login_mediux(driver, username, password, nickname):
         logger.info("User is not logged in. Proceeding with login...")
 
     try:
-
         login_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.XPATH, "//button[contains(text(), 'Sign In')]")
@@ -353,6 +368,7 @@ def login_mediux(driver, username, password, nickname):
         )
         logger.info("Logged into Mediux successfully.")
     except Exception as e:
+        take_screenshot(driver, "error_login")
         logger.error(f"Failed to log into Mediux: {e}")
         raise
 
@@ -717,6 +733,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+
+    config_path = args.config_path
 
     if "TZ" in config:
         os.environ["TZ"] = config["TZ"]
