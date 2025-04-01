@@ -45,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 
 CACHE_FILE = "./out/tmdb_cache.pkl"
-GLOBAL_TIMEOUT = 2
 CONFIG_FILE = "config.json"
 
 new_data = defaultdict(dict)
@@ -256,7 +255,6 @@ def scrape_mediux(driver, tmdb_id, media_type):
 
     driver.get(url)
     try:
-        time.sleep(5)
         yaml_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (
@@ -442,9 +440,10 @@ def write_data_to_files():
     existing_urls = set()
 
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
+    folder_cache = {root: os.listdir(root) for root in root_folders}
 
-    for root in root_folders:
-        for folder in os.listdir(root):
+    for root, folders in folder_cache.items():
+        for folder in folders:
             folder_path = os.path.join(root, folder)
             if os.path.isdir(folder_path):
                 file_path = f"./out/kometa/{folder}_data.yml"
@@ -517,13 +516,15 @@ def run(
 
     cache = load_cache(CACHE_FILE)
 
-    folder_bulk_data = {}
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
-    for root in root_folders:
+    folder_cache = {root: os.listdir(root) for root in root_folders}
+
+    folder_bulk_data = {}
+    for root, folders in folder_cache.items():
         folder_bulk_data.update(
             {
                 folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", False)
-                for folder in os.listdir(root)
+                for folder in folders
                 if os.path.isdir(os.path.join(root, folder))
             }
         )
@@ -607,8 +608,6 @@ def run(
                         new_data[folder][tmdb_id] = yaml_data
 
                     updated_titles.append(media_name)
-
-                    time.sleep(GLOBAL_TIMEOUT)
     finally:
         logger.info("Quitting WebDriver...")
         driver.quit()
