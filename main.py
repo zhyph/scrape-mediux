@@ -289,7 +289,7 @@ def scrape_mediux(driver, tmdb_id, media_type):
         return yaml_data
     except Exception as e:
         logger.error(
-            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\nThis can be normal, but, if this ID had an YAML to be extracted and the script failed, create an issue in the script Github:\n {e}"
+            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\nThis can be normal, but, if this ID had an YAML to be extracted and the script failed, create an issue in the script Github\n{e}"
         )
         return ""
 

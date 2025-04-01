@@ -141,9 +141,12 @@ services:
     container_name: scrape-mediux
     environment:
       - TZ=Etc/UTC # Set your timezone
+      - LOG_LEVEL=info # Set the log level (debug, info, warning, error), can be omitted
     volumes:
-      - /path/to/config:/config # REQUIRED
       - /path/to/media:/data # REQUIRED, root_folder in config.json (or args) must match this
+      - /path/to/config:/config # REQUIRED
+      - /path/to/config/cache:/app/out # RECOMMENDED, if you don't bind this, the cache will be stored in the container and can easily be lost
+      - /path/to/config/profile:/profile # RECOMMENDED, must match profile_path in config.json, if you don't bind this, the profile can be removed and you will need to login again (which is not a big deal, but it will take longer)
       - /path/to/kometa/metadata:/out # OPTIONAL, output_dir in config.json (or args) must match this
 ```
 
