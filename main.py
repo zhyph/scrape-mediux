@@ -58,7 +58,6 @@ yaml = YAML()
 yaml.allow_duplicate_keys = True
 
 
-# Initialize Selenium WebDriver
 def init_driver(headless=True, profile_path=None, chromedriver_path=None):
     logger.info("Initializing WebDriver...")
     options = Options()
@@ -147,17 +146,14 @@ def load_config(config_path):
     return {}
 
 
-# Get media IDs from folder names
 def get_media_ids(root_folder, selected_folders=None):
     logger.info("Fetching media IDs from folder names...")
 
-    # Validate the root folder(s)
     validate_path(root_folder, "Root folder")
 
     media_ids = []
     folder_map = defaultdict(list)
 
-    # Ensure root_folder is a list for uniform processing
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
 
     for root in root_folders:
@@ -197,12 +193,11 @@ def get_media_ids(root_folder, selected_folders=None):
     return media_ids, folder_map
 
 
-# Fetch TMDB ID using media ID with caching
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def fetch_tmdb_id(media_id, external_source, api_key, cache):
     if external_source == "tmdb_id":
         logger.info(f"Using TMDB ID {media_id} directly.")
-        # Check if the TMDB ID is a movie or a TV show
+
         url = f"https://api.themoviedb.org/3/movie/{media_id}"
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -233,7 +228,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
         "accept": "application/json",
     }
     response = requests.get(url, headers=headers)
-    response.raise_for_status()  # Raise an exception for HTTP errors
+    response.raise_for_status()
     data = response.json()
     if data.get("movie_results"):
         tmdb_id = data["movie_results"][0]["id"]
@@ -251,7 +246,6 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
     return tmdb_id, media_type
 
 
-# Scrape Mediux website for YAML links
 def scrape_mediux(driver, tmdb_id, media_type):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
     base_url = "https://mediux.pro"
@@ -274,7 +268,6 @@ def scrape_mediux(driver, tmdb_id, media_type):
 
         yaml_button.click()
 
-        # Wait for the YAML data to be fully loaded
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
@@ -288,7 +281,6 @@ def scrape_mediux(driver, tmdb_id, media_type):
             )
         )
 
-        # Wait for the text to be populated in the code element
         WebDriverWait(driver, 20).until(
             lambda d: yaml_element.get_attribute("innerText").strip() != ""
         )
@@ -304,9 +296,8 @@ def scrape_mediux(driver, tmdb_id, media_type):
         return ""
 
 
-# Extract set URLs from YAML data
 def extract_set_urls(yaml_data):
-    # Extract set URLs without logging each step
+
     set_urls = set()
     lines = yaml_data.split("\n")
     for line in lines:
@@ -316,25 +307,24 @@ def extract_set_urls(yaml_data):
     return set_urls
 
 
-# Login to Mediux website (if not already logged in)
 def login_mediux(driver, username, password, nickname):
     logger.info("Checking login status on Mediux...")
     base_url = "https://mediux.pro"
     driver.get(base_url)
     try:
-        # Check if the user is already logged in by looking for the nickname
+
         WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
                 (By.XPATH, f"//button[contains(text(), '{nickname}')]")
             )
         )
         logger.info(f"User '{nickname}' is already logged in.")
-        return  # Exit the function if the user is already logged in
+        return
     except Exception:
         logger.info("User is not logged in. Proceeding with login...")
 
     try:
-        # Locate and click the "Sign In" button
+
         login_button = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.XPATH, "//button[contains(text(), 'Sign In')]")
@@ -343,25 +333,21 @@ def login_mediux(driver, username, password, nickname):
         login_button.click()
         logger.debug("Clicked on 'Sign In' button.")
 
-        # Wait for the login form to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, ":r0:-form-item"))
         )
         logger.debug("Login form loaded.")
 
-        # Enter username and password
         username_field = driver.find_element(By.ID, ":r0:-form-item")
         password_field = driver.find_element(By.ID, ":r1:-form-item")
         username_field.send_keys(username)
         password_field.send_keys(password)
         logger.debug("Entered username and password.")
 
-        # Submit the login form
         submit_button = driver.find_element(By.XPATH, "//form/button")
         submit_button.click()
         logger.debug("Clicked on 'Submit' button.")
 
-        # Wait for the nickname to appear, indicating a successful login
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.XPATH, f"//button[contains(text(), '{nickname}')]")
@@ -373,7 +359,6 @@ def login_mediux(driver, username, password, nickname):
         raise
 
 
-# Load cache from file
 def load_cache(cache_file):
     if os.path.exists(cache_file):
         logger.info(f"Loading cache from {cache_file}...")
@@ -385,7 +370,6 @@ def load_cache(cache_file):
     return {}
 
 
-# Save cache to file
 def save_cache(updated_cache, cache_file):
     logger.info(f"Saving cache to {cache_file}...")
     if os.path.exists(cache_file):
@@ -401,7 +385,6 @@ def save_cache(updated_cache, cache_file):
     logger.info("Cache saved successfully.")
 
 
-# Load existing bulk data to check for already processed IDs
 def load_bulk_data(bulk_data_file, only_set_urls=False):
     if os.path.exists(bulk_data_file):
         logger.info(f"Loading bulk data from {bulk_data_file}...")
@@ -423,7 +406,6 @@ def load_bulk_data(bulk_data_file, only_set_urls=False):
     return set() if only_set_urls else {"metadata": {}}
 
 
-# Integrate with Sonarr API to check if the series is ongoing
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
 def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     logger.info(f"Checking series status for {media_name}...")
@@ -447,11 +429,9 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     return None, None
 
 
-# Write data to files
 def write_data_to_files():
     global new_data, folder_bulk_data, output_dir
 
-    # Validate the root folder(s)
     validate_path(root_folder, "Root folder")
 
     logger.info("Writing data to files...")
@@ -461,7 +441,6 @@ def write_data_to_files():
 
     existing_urls = set()
 
-    # Ensure root_folder is a list for uniform processing
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
 
     for root in root_folders:
@@ -471,8 +450,8 @@ def write_data_to_files():
                 file_path = f"./out/kometa/{folder}_data.yml"
                 existing_urls.update(load_bulk_data(file_path, True))
 
-    updated_files = []  # Track updated files
-    total_urls_extracted = 0  # Track total URLs extracted
+    updated_files = []
+    total_urls_extracted = 0
 
     for folder, data in new_data.items():
         file_name = f"./out/kometa/{folder}_data.yml"
@@ -494,7 +473,6 @@ def write_data_to_files():
             yaml.dump(existing_data, f)
         updated_files.append(file_name)
 
-    # Summarize updates
     logger.info(f"Updated {len(updated_files)} files: {', '.join(updated_files)}")
     logger.info(f"Extracted a total of {total_urls_extracted} unique set URLs.")
 
@@ -519,7 +497,6 @@ def write_data_to_files():
         logger.info(f"Files copied to {output_dir}.")
 
 
-# Main script
 def run(
     api_key,
     username,
@@ -536,7 +513,6 @@ def run(
     global cache, new_data, folder_bulk_data, root_folder
     logger.info("Starting the script...")
 
-    # Validate the root folder(s)
     validate_path(root_folder, "Root folder")
 
     cache = load_cache(CACHE_FILE)
@@ -558,12 +534,11 @@ def run(
 
     driver = init_driver(headless, profile_path, chromedriver_path)
 
-    updated_titles = []  # List to store updated titles
+    updated_titles = []
 
     try:
         login_mediux(driver, username, password, nickname)
 
-        # Use tqdm to create a progress bar and ensure it stays at the bottom
         with logging_redirect_tqdm():
             for media_id, media_name, external_source in tqdm(
                 media_ids, desc="Processing media IDs"
@@ -631,7 +606,7 @@ def run(
                     for folder in folder_map[media_id]:
                         new_data[folder][tmdb_id] = yaml_data
 
-                    updated_titles.append(media_name)  # Add the title to the list
+                    updated_titles.append(media_name)
 
                     time.sleep(GLOBAL_TIMEOUT)
     finally:
@@ -639,7 +614,6 @@ def run(
         driver.quit()
         logger.info("Script finished.")
 
-        # Log the list of updated titles
         if updated_titles:
             logger.info("Updated Titles:")
             for title in updated_titles:
@@ -748,7 +722,6 @@ if __name__ == "__main__":
     if "TZ" in config:
         os.environ["TZ"] = config["TZ"]
 
-    # Prioritize command-line arguments, fall back to config values only if args are not provided or are empty
     root_folder = (
         args.root_folder if args.root_folder is not None else config.get("root_folder")
     )
