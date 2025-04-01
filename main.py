@@ -87,13 +87,60 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
         raise
 
 
+def validate_path(path, description="Path"):
+    if isinstance(path, list):
+        for p in path:
+            if not p:
+                raise ValueError(
+                    f"{description} contains an empty path. Please check your configuration."
+                )
+            if not os.path.exists(p):
+                raise FileNotFoundError(
+                    f"{description} '{p}' does not exist. Please check your configuration."
+                )
+            if not os.path.isdir(p):
+                raise NotADirectoryError(
+                    f"{description} '{p}' is not a directory. Please check your configuration."
+                )
+    else:
+        if not path:
+            raise ValueError(
+                f"{description} is not set. Please check your configuration."
+            )
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"{description} '{path}' does not exist. Please check your configuration."
+            )
+        if not os.path.isdir(path):
+            raise NotADirectoryError(
+                f"{description} '{path}' is not a directory. Please check your configuration."
+            )
+
+
 def load_config(config_path):
     full_config_path = f"{config_path}/{CONFIG_FILE}"
     if os.path.exists(full_config_path):
         logger.info(f"Loading configuration from {full_config_path}...")
         with open(full_config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-        logger.debug(f"Configuration loaded: {config}")
+
+        sanitized_config = {
+            k: (
+                "[REDACTED]"
+                if k
+                in [
+                    "api_key",
+                    "password",
+                    "sonarr_api_key",
+                    "username",
+                    "nickname",
+                    "sonarr_endpoint",
+                ]
+                else v
+            )
+            for k, v in config.items()
+        }
+        logger.debug(f"Configuration loaded: {sanitized_config}")
         return config
     logger.error(f"Configuration file not found at {full_config_path}.")
     return {}
@@ -102,40 +149,49 @@ def load_config(config_path):
 # Get media IDs from folder names
 def get_media_ids(root_folder, selected_folders=None):
     logger.info("Fetching media IDs from folder names...")
+
+    # Validate the root folder(s)
+    validate_path(root_folder, "Root folder")
+
     media_ids = []
     folder_map = defaultdict(list)
-    folders_to_search = (
-        selected_folders if selected_folders else os.listdir(root_folder)
-    )
 
-    for folder in folders_to_search:
-        logger.debug(f"Searching folder: {folder}")
-        folder_path = os.path.join(root_folder, folder)
-        if os.path.isdir(folder_path):
-            subfolders = os.listdir(folder_path)
-            for subfolder in subfolders:
-                subfolder_path = os.path.join(folder_path, subfolder)
-                if os.path.isdir(subfolder_path):
-                    imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
-                    tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
-                    tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
-                    name_match = re.search(r"(.+?)(?=\{(imdb|tvdb|tmdb)-)", subfolder)
-                    if imdb_match and name_match:
-                        media_id = imdb_match.group(1)
-                        media_name = name_match.group(1).strip()
-                        external_source = "imdb_id"
-                    elif tvdb_match and name_match:
-                        media_id = tvdb_match.group(1)
-                        media_name = name_match.group(1).strip()
-                        external_source = "tvdb_id"
-                    elif tmdb_match and name_match:
-                        media_id = tmdb_match.group(1)
-                        media_name = name_match.group(1).strip()
-                        external_source = "tmdb_id"
-                    else:
-                        continue
-                    media_ids.append((media_id, media_name, external_source))
-                    folder_map[media_id].append(folder)
+    # Ensure root_folder is a list for uniform processing
+    root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
+
+    for root in root_folders:
+        folders_to_search = selected_folders if selected_folders else os.listdir(root)
+
+        for folder in folders_to_search:
+            logger.debug(f"Searching folder: {folder}")
+            folder_path = os.path.join(root, folder)
+            if os.path.isdir(folder_path):
+                subfolders = os.listdir(folder_path)
+                for subfolder in subfolders:
+                    subfolder_path = os.path.join(folder_path, subfolder)
+                    if os.path.isdir(subfolder_path):
+                        imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
+                        tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
+                        tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
+                        name_match = re.search(
+                            r"(.+?)(?=\{(imdb|tvdb|tmdb)-)", subfolder
+                        )
+                        if imdb_match and name_match:
+                            media_id = imdb_match.group(1)
+                            media_name = name_match.group(1).strip()
+                            external_source = "imdb_id"
+                        elif tvdb_match and name_match:
+                            media_id = tvdb_match.group(1)
+                            media_name = name_match.group(1).strip()
+                            external_source = "tvdb_id"
+                        elif tmdb_match and name_match:
+                            media_id = tmdb_match.group(1)
+                            media_name = name_match.group(1).strip()
+                            external_source = "tmdb_id"
+                        else:
+                            continue
+                        media_ids.append((media_id, media_name, external_source))
+                        folder_map[media_id].append(folder)
     logger.info(f"Found media IDs: {media_ids}")
     return media_ids, folder_map
 
@@ -376,18 +432,28 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
 # Write data to files
 def write_data_to_files():
     global new_data, folder_bulk_data, output_dir
+
+    # Validate the root folder(s)
+    validate_path(root_folder, "Root folder")
+
     logger.info("Writing data to files...")
 
     os.makedirs("./out/kometa", exist_ok=True)
     logger.debug("Created output directory './out/kometa'.")
 
     existing_urls = set()
-    for folder in os.listdir(root_folder):
-        logger.debug(f"Checking folder: {folder}")
-        logger.debug(f"Folder path: {os.path.join(root_folder, folder)}")
-        if os.path.isdir(os.path.join(root_folder, folder)):
-            file_path = f"./out/kometa/{folder}_data.yml"
-            existing_urls.update(load_bulk_data(file_path, True))
+
+    # Ensure root_folder is a list for uniform processing
+    root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
+
+    for root in root_folders:
+        for folder in os.listdir(root):
+            logger.debug(f"Checking folder: {folder}")
+            folder_path = os.path.join(root, folder)
+            logger.debug(f"Folder path: {folder_path}")
+            if os.path.isdir(folder_path):
+                file_path = f"./out/kometa/{folder}_data.yml"
+                existing_urls.update(load_bulk_data(file_path, True))
 
     for folder, data in new_data.items():
         file_name = f"./out/kometa/{folder}_data.yml"
@@ -445,13 +511,22 @@ def run(
 ):
     global cache, new_data, folder_bulk_data, root_folder
     logger.info("Starting the script...")
+
+    # Validate the root folder(s)
+    validate_path(root_folder, "Root folder")
+
     cache = load_cache(CACHE_FILE)
 
-    folder_bulk_data = {
-        folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", False)
-        for folder in os.listdir(root_folder)
-        if os.path.isdir(os.path.join(root_folder, folder))
-    }
+    folder_bulk_data = {}
+    root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
+    for root in root_folders:
+        folder_bulk_data.update(
+            {
+                folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", False)
+                for folder in os.listdir(root)
+                if os.path.isdir(os.path.join(root, folder))
+            }
+        )
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
     media_ids, folder_map = get_media_ids(root_folder, selected_folders)
@@ -690,7 +765,17 @@ if __name__ == "__main__":
         else config.get("chromedriver_path")
     )
 
-    atexit.register(write_data_to_files)
+    if root_folder:
+        try:
+            validate_path(root_folder, "Root folder")
+            atexit.register(write_data_to_files)
+        except Exception as e:
+            logger.error(f"Error during validation of root folder: {e}")
+    else:
+        logger.warning(
+            "Root folder is not set. Skipping atexit registration for write_data_to_files."
+        )
+
     try:
         if cron_expression:
             schedule_run(cron_expression)
