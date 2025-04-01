@@ -3,6 +3,7 @@ services:
     image: docker.io/zhyph/scrape-mediux
     container_name: scrape-mediux
     environment:
+      - LOG_LEVEL=info # Set the log level (debug, info, warning, error)
       - TZ=Etc/UTC # Set your timezone
     volumes:
       - /path/to/config:/config # REQUIRED
