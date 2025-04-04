@@ -299,6 +299,14 @@ def scrape_mediux(driver, tmdb_id, media_type):
         logger.info(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
     except Exception as e:
+        # Check if the error is due to the YAML button not being found
+        if not driver.find_elements(
+            By.XPATH, "//button[span[contains(text(), 'YAML')]]"
+        ):
+            logger.warning(
+                f"YAML button not found for TMDB ID {tmdb_id}"
+            )
+            return ""
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
             f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\n"
