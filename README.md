@@ -1,11 +1,11 @@
 # Mediux Poster Scraper
 
-This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb IDs to find corresponding TMDB IDs. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
+This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb, TVDB or TMDB IDs to find corresponding movies/shows. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
 
 ## Features
 
 - **Automatic login** to Mediux.
-- **Data scraping** from the Mediux website based on TMDB IDs retrieved via IMDb IDs.
+- **Data scraping** from the Mediux website based on TMDB IDs retrieved via IMDb, TVDB or directly TMDB IDs.
 - **Caching** to avoid redundant API calls.
 - **Extracts and saves** unique Mediux set URLs to a text file.
 - **Handles early termination** and ensures all processed data is saved.
@@ -74,9 +74,29 @@ cp config.example.json config.json
 }
 ```
 
+This is how your folders should look like:
+
+```bash
+root_folder/
+├── movies/
+│   ├── The Movie Title (2010) {imdb-tt0066921}/
+│   │   └── ...
+│   └── Another Movie Title (2010) {tmdb-345691}/
+│       └── ...
+└── shows/
+    ├── The Series Title! (2010) {imdb-tt1520211}/
+    │   └── ...
+    └── Another Series Title! (2010) {tvdb-1520211}/
+        └── ...
+config_path/
+└── config.json
+```
+
+These are just examples, you can name your folders whatever you want, but the script will only process the folders that match the naming scheme. `Name {imdb-tt|tmdb|tvdb}`, anything else will be ignored.
+
 ### Field Descriptions
 
-- **`root_folder`**: The root folder containing subfolders with IMDb IDs. This is the directory where your media folders are located.
+- **`root_folder`**: The root folder containing subfolders with IMDb, TVDB or TMDB IDs. This is the directory where your media folders are located.
 - **`api_key`**: Your TMDB API Read Access Token. You can find this in your [TMDB account settings](https://www.themoviedb.org/settings/api).
 - **`username`**: Your Mediux username used for logging into the Mediux website.
 - **`password`**: Your Mediux password used for logging into the Mediux website.
@@ -109,7 +129,7 @@ All arguments are optional, and if not provided, the script will use the default
 If any arguments are provided, they will override the corresponding values in the `config.json` file.
 
 - `--config_path`: Directory to the configuration file, defaults to `/config`.
-- `--root_folder`: Root folder containing subfolders with IMDb IDs.
+- `--root_folder`: Root folder containing subfolders with IMDb, TVDB or TMDB IDs.
 - `--api_key`: TMDB API Read Access Token (not API Key).
 - `--username`: Mediux username.
 - `--password`: Mediux password.
@@ -117,7 +137,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--profile_path`: Path to Chrome user profile.
 - `--sonarr_api_key`: Sonarr API key.
 - `--sonarr_endpoint`: Sonarr API endpoint.
-- `--folders`: Specific folders to search for IMDb IDs (optional).
+- `--folders`: Specific folders to search for IMDb, TVDB or TMDB IDs (optional).
 - `--headless`: Run Selenium in headless mode.
 - `--cron`: Cron expression for scheduling the script.
 - `--output_dir`: Directory to copy the output files to.
