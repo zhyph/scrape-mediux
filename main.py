@@ -89,9 +89,7 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
 
 
 def take_screenshot(driver: WebDriver, name: str):
-    screenshot_enabled = os.environ.get("SCREENSHOT") == "1" or config.get(
-        "screenshot", False
-    )
+    screenshot_enabled = os.environ.get("SCREENSHOT") == "1"
     if not screenshot_enabled:
         return
 
@@ -161,7 +159,7 @@ def load_config(config_path):
         logger.debug(f"Configuration loaded: {sanitized_config}")
         return config
     logger.error(f"Configuration file not found at {full_config_path}.")
-    return {}
+    exit(1)
 
 
 def get_media_ids(root_folder, selected_folders=None):
