@@ -25,6 +25,11 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from tenacity import retry, stop_after_attempt, wait_fixed
 
+const_dict = {
+    "ROOT_FOLDER": "Root folder",
+    "APPJSON": "application/json",
+    "OUT_PATH": "./out/kometa",
+}
 
 logging_dict = {
     "INFO": 20,
@@ -105,32 +110,29 @@ def take_screenshot(driver: WebDriver, name: str):
 
 def validate_path(path, description="Path"):
     if isinstance(path, list):
-        for p in path:
-            if not p:
-                raise ValueError(
-                    f"{description} contains an empty path. Please check your configuration."
-                )
-            if not os.path.exists(p):
-                raise FileNotFoundError(
-                    f"{description} '{p}' does not exist. Please check your configuration."
-                )
-            if not os.path.isdir(p):
-                raise NotADirectoryError(
-                    f"{description} '{p}' is not a directory. Please check your configuration."
-                )
+        _validate_list_of_paths(path, description)
     else:
-        if not path:
-            raise ValueError(
-                f"{description} is not set. Please check your configuration."
-            )
-        if not os.path.exists(path):
-            raise FileNotFoundError(
-                f"{description} '{path}' does not exist. Please check your configuration."
-            )
-        if not os.path.isdir(path):
-            raise NotADirectoryError(
-                f"{description} '{path}' is not a directory. Please check your configuration."
-            )
+        _validate_single_path(path, description)
+
+
+def _validate_list_of_paths(paths, description):
+    for p in paths:
+        _validate_single_path(p, description)
+
+
+def _validate_single_path(path, description):
+    if not path:
+        raise ValueError(
+            f"{description} is not set or contains an empty path. Please check your configuration."
+        )
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{description} '{path}' does not exist. Please check your configuration."
+        )
+    if not os.path.isdir(path):
+        raise NotADirectoryError(
+            f"{description} '{path}' is not a directory. Please check your configuration."
+        )
 
 
 def load_config(config_path):
@@ -165,7 +167,7 @@ def load_config(config_path):
 def get_media_ids(root_folder, selected_folders=None):
     logger.info("Fetching media IDs from folder names...")
 
-    validate_path(root_folder, "Root folder")
+    validate_path(root_folder, const_dict["ROOT_FOLDER"])
 
     media_ids = []
     folder_map = defaultdict(list)
@@ -174,39 +176,66 @@ def get_media_ids(root_folder, selected_folders=None):
 
     for root in root_folders:
         folders_to_search = selected_folders if selected_folders else os.listdir(root)
+        process_folders(root, folders_to_search, media_ids, folder_map)
 
-        for folder in folders_to_search:
-            logger.debug(f"Searching folder: {folder}")
-            folder_path = os.path.join(root, folder)
-            if os.path.isdir(folder_path):
-                subfolders = os.listdir(folder_path)
-                for subfolder in subfolders:
-                    subfolder_path = os.path.join(folder_path, subfolder)
-                    if os.path.isdir(subfolder_path):
-                        imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
-                        tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
-                        tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
-                        name_match = re.search(
-                            r"(.+?)(?=\{(imdb|tvdb|tmdb)-)", subfolder
-                        )
-                        if imdb_match and name_match:
-                            media_id = imdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "imdb_id"
-                        elif tvdb_match and name_match:
-                            media_id = tvdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "tvdb_id"
-                        elif tmdb_match and name_match:
-                            media_id = tmdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "tmdb_id"
-                        else:
-                            continue
-                        media_ids.append((media_id, media_name, external_source))
-                        folder_map[media_id].append(folder)
     logger.info(f"Found media IDs: {media_ids}")
     return media_ids, folder_map
+
+
+def process_folders(root, folders_to_search, media_ids, folder_map):
+    for folder in folders_to_search:
+        logger.debug(f"Searching folder: {folder}")
+        folder_path = os.path.join(root, folder)
+        if os.path.isdir(folder_path):
+            process_subfolders(folder_path, folder, media_ids, folder_map)
+
+
+def process_subfolders(folder_path, folder, media_ids, folder_map):
+    subfolders = os.listdir(folder_path)
+    for subfolder in subfolders:
+        subfolder_path = os.path.join(folder_path, subfolder)
+        if os.path.isdir(subfolder_path):
+            process_subfolder_name(subfolder, folder, media_ids, folder_map)
+
+
+def process_subfolder_name(subfolder, folder, media_ids, folder_map):
+    imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
+    tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
+    tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
+    name_match = re.search(r"(.*)(?=\{(imdb|tvdb|tmdb)-)", subfolder)
+
+    if imdb_match and name_match:
+        add_media_id(
+            imdb_match.group(1),
+            name_match.group(1).strip(),
+            "imdb_id",
+            folder,
+            media_ids,
+            folder_map,
+        )
+    elif tvdb_match and name_match:
+        add_media_id(
+            tvdb_match.group(1),
+            name_match.group(1).strip(),
+            "tvdb_id",
+            folder,
+            media_ids,
+            folder_map,
+        )
+    elif tmdb_match and name_match:
+        add_media_id(
+            tmdb_match.group(1),
+            name_match.group(1).strip(),
+            "tmdb_id",
+            folder,
+            media_ids,
+            folder_map,
+        )
+
+
+def add_media_id(media_id, media_name, external_source, folder, media_ids, folder_map):
+    media_ids.append((media_id, media_name, external_source))
+    folder_map[media_id].append(folder)
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
@@ -217,7 +246,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
         url = f"https://api.themoviedb.org/3/movie/{media_id}"
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "accept": "application/json",
+            "accept": const_dict["APPJSON"],
         }
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
@@ -241,7 +270,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
     url = f"https://api.themoviedb.org/3/find/{media_id}?external_source={external_source}"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "accept": "application/json",
+        "accept": const_dict["APPJSON"],
     }
     response = requests.get(url, headers=headers)
     response.raise_for_status()
@@ -424,7 +453,7 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
         "X-Api-Key": sonarr_api_key,
-        "accept": "application/json",
+        "accept": const_dict["APPJSON"],
     }
     response = requests.get(url, headers=headers)
     response.raise_for_status()
@@ -444,15 +473,25 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
 def write_data_to_files():
     global new_data, folder_bulk_data, output_dir
 
-    validate_path(root_folder, "Root folder")
-
+    validate_path(root_folder, const_dict["ROOT_FOLDER"])
     logger.info("Writing data to files...")
 
-    os.makedirs("./out/kometa", exist_ok=True)
+    os.makedirs(const_dict["OUT_PATH"], exist_ok=True)
     logger.debug("Created output directory './out/kometa'.")
 
-    existing_urls = set()
+    existing_urls = collect_existing_urls()
+    updated_files, total_urls_extracted = update_new_data(existing_urls)
 
+    log_updated_files(updated_files, total_urls_extracted)
+    write_set_urls_to_file(existing_urls)
+    save_cache(cache, CACHE_FILE)
+
+    if output_dir:
+        copy_files_to_output_dir()
+
+
+def collect_existing_urls():
+    existing_urls = set()
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
     folder_cache = {root: os.listdir(root) for root in root_folders}
 
@@ -462,19 +501,16 @@ def write_data_to_files():
             if os.path.isdir(folder_path):
                 file_path = f"./out/kometa/{folder}_data.yml"
                 existing_urls.update(load_bulk_data(file_path, True))
+    return existing_urls
 
+
+def update_new_data(existing_urls):
     updated_files = []
     total_urls_extracted = 0
 
     for folder, data in new_data.items():
         file_name = f"./out/kometa/{folder}_data.yml"
-        if os.path.exists(file_name):
-            with open(file_name, "r", encoding="utf-8") as f:
-                existing_data = yaml.load(f)
-                if not existing_data:
-                    existing_data = {"metadata": {}}
-        else:
-            existing_data = {"metadata": {}}
+        existing_data = load_existing_data(file_name)
 
         for _, yaml_data in data.items():
             existing_data["metadata"].update(yaml.load(yaml_data))
@@ -482,32 +518,48 @@ def write_data_to_files():
             existing_urls.update(urls)
             total_urls_extracted += len(urls)
 
-        with open(file_name, "w", encoding="utf-8") as f:
-            yaml.dump(existing_data, f)
+        save_yaml_data(file_name, existing_data)
         updated_files.append(file_name)
 
+    return updated_files, total_urls_extracted
+
+
+def load_existing_data(file_name):
+    if os.path.exists(file_name):
+        with open(file_name, "r", encoding="utf-8") as f:
+            existing_data = yaml.load(f)
+            return existing_data if existing_data else {"metadata": {}}
+    return {"metadata": {}}
+
+
+def save_yaml_data(file_name, data):
+    with open(file_name, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+
+
+def log_updated_files(updated_files, total_urls_extracted):
     logger.info(f"Updated {len(updated_files)} files: {', '.join(updated_files)}")
     logger.info(f"Extracted a total of {total_urls_extracted} unique set URLs.")
 
+
+def write_set_urls_to_file(existing_urls):
     with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
         for url in sorted(existing_urls):
             f.write(url + "\n")
     logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
 
-    save_cache(cache, CACHE_FILE)
-    logger.info("Data writing completed.")
 
-    if output_dir:
-        logger.info(f"Copying files to {output_dir}...")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            logger.debug(f"Created output directory {output_dir}.")
+def copy_files_to_output_dir():
+    logger.info(f"Copying files to {output_dir}...")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        logger.debug(f"Created output directory {output_dir}.")
 
-        for filename in os.listdir("./out/kometa"):
-            src_file = os.path.join("./out/kometa", filename)
-            dst_file = os.path.join(output_dir, filename)
-            shutil.copy2(src_file, dst_file)
-        logger.info(f"Files copied to {output_dir}.")
+    for filename in os.listdir(const_dict["OUT_PATH"]):
+        src_file = os.path.join(const_dict["OUT_PATH"], filename)
+        dst_file = os.path.join(output_dir, filename)
+        shutil.copy2(src_file, dst_file)
+    logger.info(f"Files copied to {output_dir}.")
 
 
 def run(
@@ -526,13 +578,38 @@ def run(
     global cache, new_data, folder_bulk_data, root_folder
     logger.info("Starting the script...")
 
-    validate_path(root_folder, "Root folder")
-
+    validate_path(root_folder, const_dict["ROOT_FOLDER"])
     cache = load_cache(CACHE_FILE)
+    folder_cache = prepare_folder_cache(root_folder)
+    folder_bulk_data = load_folder_bulk_data(folder_cache)
 
+    media_ids, folder_map = get_media_ids(root_folder, selected_folders)
+    logger.info(f"Media IDs to process: {len(media_ids)}")
+
+    driver = init_driver(headless, profile_path, chromedriver_path)
+    updated_titles = []
+
+    try:
+        login_mediux(driver, username, password, nickname)
+        updated_titles = process_media_ids(
+            driver,
+            media_ids,
+            folder_map,
+            api_key,
+            sonarr_api_key,
+            sonarr_endpoint,
+            process_all,
+        )
+    finally:
+        finalize_run(driver, updated_titles)
+
+
+def prepare_folder_cache(root_folder):
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
-    folder_cache = {root: os.listdir(root) for root in root_folders}
+    return {root: os.listdir(root) for root in root_folders}
 
+
+def load_folder_bulk_data(folder_cache):
     folder_bulk_data = {}
     for root, folders in folder_cache.items():
         folder_bulk_data.update(
@@ -543,96 +620,119 @@ def run(
             }
         )
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
+    return folder_bulk_data
 
-    media_ids, folder_map = get_media_ids(root_folder, selected_folders)
-    logger.info(f"Media IDs to process: {len(media_ids)}")
 
-    driver = init_driver(headless, profile_path, chromedriver_path)
-
+def process_media_ids(
+    driver, media_ids, folder_map, api_key, sonarr_api_key, sonarr_endpoint, process_all
+):
     updated_titles = []
-
-    try:
-        login_mediux(driver, username, password, nickname)
-
-        with logging_redirect_tqdm():
-            for media_id, media_name, external_source in tqdm(
-                media_ids, desc="Processing media IDs"
+    with logging_redirect_tqdm():
+        for media_id, media_name, external_source in tqdm(
+            media_ids, desc="Processing media IDs"
+        ):
+            if process_single_media_id(
+                driver,
+                media_id,
+                media_name,
+                external_source,
+                folder_map,
+                api_key,
+                sonarr_api_key,
+                sonarr_endpoint,
+                process_all,
             ):
-                already_processed = False
-                try:
-                    tmdb_id, media_type = fetch_tmdb_id(
-                        media_id, external_source, api_key, cache
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}"
-                    )
-                    continue
+                updated_titles.append(media_name)
+    return updated_titles
 
-                if media_type == "tv":
-                    try:
-                        tvdb_id, ended = check_series_status(
-                            media_name, sonarr_api_key, sonarr_endpoint
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to check series status for {media_name}: {e}"
-                        )
-                        continue
 
-                for folder in folder_map[media_id]:
-                    curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
+def process_single_media_id(
+    driver,
+    media_id,
+    media_name,
+    external_source,
+    folder_map,
+    api_key,
+    sonarr_api_key,
+    sonarr_endpoint,
+    process_all,
+):
+    try:
+        tmdb_id, media_type = fetch_tmdb_id(media_id, external_source, api_key, cache)
+    except Exception as e:
+        logger.error(f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}")
+        return False
 
-                    if media_type == "tv":
-                        if tvdb_id is not None:
-                            if (
-                                tvdb_id in curr_bulk_data.get("metadata", {})
-                                and not process_all
-                            ):
-                                if not ended:
-                                    logger.info(
-                                        f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
-                                    )
-                                    del curr_bulk_data["metadata"][tvdb_id]
-                                else:
-                                    already_processed = True
-                                    logger.info(
-                                        f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
-                                    )
+    tvdb_id, ended = None, None
 
-                    if tmdb_id in curr_bulk_data["metadata"] and not process_all:
-                        already_processed = True
-                        logger.info(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
-                        )
+    if media_type == "tv":
+        try:
+            tvdb_id, ended = check_series_status(
+                media_name, sonarr_api_key, sonarr_endpoint
+            )
+        except Exception as e:
+            logger.error(f"Failed to check series status for {media_name}: {e}")
+            return False
 
-                if already_processed:
-                    continue
+    if is_already_processed(
+        media_id, tmdb_id, media_type, folder_map, process_all, tvdb_id, ended
+    ):
+        return False
 
+    logger.info(
+        f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
+    )
+    if tmdb_id:
+        yaml_data = scrape_mediux(driver, tmdb_id, media_type)
+        if not yaml_data:
+            logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
+            return False
+
+        for folder in folder_map[media_id]:
+            new_data[folder][tmdb_id] = yaml_data
+
+    return True
+
+
+def is_already_processed(
+    media_id, tmdb_id, media_type, folder_map, process_all, tvdb_id=None, ended=None
+):
+    for folder in folder_map[media_id]:
+        curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
+        if media_type == "tv" and tvdb_id is not None:
+            if (
+                tvdb_id in curr_bulk_data.get("metadata", {})
+                and not process_all
+                and not ended
+            ):
                 logger.info(
-                    f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
+                    f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
                 )
-                if tmdb_id:
-                    yaml_data = scrape_mediux(driver, tmdb_id, media_type)
-                    if not yaml_data:
-                        logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
-                        continue
+                del curr_bulk_data["metadata"][tvdb_id]
+            elif tvdb_id in curr_bulk_data.get("metadata", {}) and not process_all:
+                logger.info(
+                    f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
+                )
+                return True
+        if tmdb_id in curr_bulk_data["metadata"] and not process_all:
+            logger.info(
+                f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
+            )
+            return True
+    return False
 
-                    for folder in folder_map[media_id]:
-                        new_data[folder][tmdb_id] = yaml_data
 
-                    updated_titles.append(media_name)
-    finally:
-        logger.info("Quitting WebDriver...")
-        driver.quit()
-        logger.info("Script finished.")
+def finalize_run(driver, updated_titles):
+    logger.info("Quitting WebDriver...")
+    driver.quit()
+    logger.info("Script finished.")
 
-        if updated_titles:
-            logger.info("Updated Titles:")
-            for title in updated_titles:
-                logger.info(f"- {title}")
-        else:
-            logger.info("No titles were updated.")
+    if updated_titles:
+        logger.info("Updated Titles:")
+        for title in updated_titles:
+            logger.info(f"- {title}")
+    else:
+        logger.info("No titles were updated.")
 
 
 def schedule_run(cron_expression):
@@ -782,7 +882,7 @@ if __name__ == "__main__":
 
     if root_folder:
         try:
-            validate_path(root_folder, "Root folder")
+            validate_path(root_folder, const_dict["ROOT_FOLDER"])
             atexit.register(write_data_to_files)
         except Exception as e:
             logger.error(f"Error during validation of root folder: {e}")
