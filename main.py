@@ -271,16 +271,20 @@ def scrape_mediux(driver, tmdb_id, media_type):
         url = f"{base_url}/shows/{tmdb_id}"
 
     driver.get(url)
+    
+    yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
 
     try:
-        yaml_button = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable(
-                (By.XPATH, "//button[span[contains(text(), 'YAML')]]")
+                (By.XPATH, yaml_xpath)
             )
+        )
+        yaml_button = driver.find_element(
+            By.XPATH, yaml_xpath
         )
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
-
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
@@ -301,11 +305,9 @@ def scrape_mediux(driver, tmdb_id, media_type):
     except Exception as e:
         # Check if the error is due to the YAML button not being found
         if not driver.find_elements(
-            By.XPATH, "//button[span[contains(text(), 'YAML')]]"
+            By.XPATH, yaml_xpath
         ):
-            logger.warning(
-                f"YAML button not found for TMDB ID {tmdb_id}"
-            )
+            logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
             return ""
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
