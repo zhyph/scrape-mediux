@@ -13,5 +13,6 @@
   "output_dir": "",
   "process_all": false,
   "TZ": "Etc/UTC",
-  "chromedriver_path": ""
+  "chromedriver_path": "",
+  "retry_on_yaml_failure": false
 }

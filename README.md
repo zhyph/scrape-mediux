@@ -70,7 +70,8 @@ cp config.example.json config.json
   "cron": "cron_expression",
   "process_all": false,
   "TZ": "your_timezone",
-  "chromedriver_path": "/path/to/chromedriver"
+  "chromedriver_path": "/path/to/chromedriver",
+  "retry_on_yaml_failure": false
 }
 ```
 
@@ -111,6 +112,7 @@ These are just examples, you can name your folders whatever you want, but the sc
 - **`process_all`**: A boolean value (`true` or `false`) to determine whether to process all items, ignoring previously processed or cached items.
 - **`TZ`**: The timezone to use for scheduling and logging. This can also be passed as an environment variable.
 - **`chromedriver_path`**: The path to the ChromeDriver executable. If omitted, the script will use `webdriver-manager` to automatically download and manage ChromeDriver.
+- **`retry_on_yaml_failure`**: A boolean value (`true` or `false`) to determine whether the script should retry by reloading the page if the YAML button exists but an error occurs. Defaults to `false`.
 
 ## Usage (Local)
 
@@ -143,6 +145,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--output_dir`: Directory to copy the output files to.
 - `--process_all`: Process all items regardless of whether they have been processed before.
 - `--chromedriver_path`: Path to the ChromeDriver executable.
+- `--retry_on_yaml_failure`: Retry by reloading the page if the YAML button exists but an error occurs. If ommitted, the script will not retry.
 
 ## Usage (Docker)
 

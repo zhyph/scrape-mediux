@@ -262,7 +262,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
     return tmdb_id, media_type
 
 
-def scrape_mediux(driver, tmdb_id, media_type):
+def scrape_mediux(driver, tmdb_id, media_type, retry_on_yaml_failure=False):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
     base_url = "https://mediux.pro"
     if media_type == "movie":
@@ -271,18 +271,14 @@ def scrape_mediux(driver, tmdb_id, media_type):
         url = f"{base_url}/shows/{tmdb_id}"
 
     driver.get(url)
-    
+
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
 
     try:
         WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, yaml_xpath)
-            )
+            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
         )
-        yaml_button = driver.find_element(
-            By.XPATH, yaml_xpath
-        )
+        yaml_button = driver.find_element(By.XPATH, yaml_xpath)
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
         yaml_element = WebDriverWait(driver, 20).until(
@@ -303,12 +299,23 @@ def scrape_mediux(driver, tmdb_id, media_type):
         logger.info(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
     except Exception as e:
-        # Check if the error is due to the YAML button not being found
-        if not driver.find_elements(
-            By.XPATH, yaml_xpath
-        ):
+        if not driver.find_elements(By.XPATH, yaml_xpath):
             logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
             return ""
+
+        if retry_on_yaml_failure:
+            logger.warning(
+                f"YAML button found but an error occurred. Retrying by reloading the page for TMDB ID {tmdb_id}."
+            )
+            driver.refresh()
+            sleep(5)
+            return scrape_mediux(
+                driver,
+                tmdb_id,
+                media_type,
+                retry_on_yaml_failure=False,
+            )
+
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
             f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\n"
@@ -532,6 +539,7 @@ def run(
     headless=True,
     process_all=False,
     chromedriver_path=None,
+    retry_on_yaml_failure=False,
 ):
     global cache, new_data, folder_bulk_data, root_folder
     logger.info("Starting the script...")
@@ -623,7 +631,9 @@ def run(
                     f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
                 )
                 if tmdb_id:
-                    yaml_data = scrape_mediux(driver, tmdb_id, media_type)
+                    yaml_data = scrape_mediux(
+                        driver, tmdb_id, media_type, retry_on_yaml_failure
+                    )
                     if not yaml_data:
                         logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
                         continue
@@ -671,6 +681,7 @@ def schedule_run(cron_expression):
                     sonarr_endpoint,
                     selected_folders,
                     headless,
+                    retry_on_yaml_failure,
                 )
                 write_data_to_files()
             except Exception as e:
@@ -737,6 +748,12 @@ if __name__ == "__main__":
         type=str,
         help="Path to the ChromeDriver executable",
     )
+    parser.add_argument(
+        "--retry_on_yaml_failure",
+        action="store_true",
+        help="Retry by reloading the page if YAML button exists but an error occurs",
+        default=None,
+    )
 
     args = parser.parse_args()
 
@@ -789,6 +806,11 @@ if __name__ == "__main__":
         if args.chromedriver_path is not None
         else config.get("chromedriver_path")
     )
+    retry_on_yaml_failure = (
+        args.retry_on_yaml_failure
+        if args.retry_on_yaml_failure is not None
+        else config.get("retry_on_yaml_failure", False)
+    )
 
     if root_folder:
         try:
@@ -817,6 +839,7 @@ if __name__ == "__main__":
                 headless,
                 process_all,
                 chromedriver_path,
+                retry_on_yaml_failure,
             )
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
