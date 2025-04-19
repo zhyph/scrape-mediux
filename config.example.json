@@ -14,5 +14,6 @@
   "process_all": false,
   "TZ": "Etc/UTC",
   "chromedriver_path": "",
-  "retry_on_yaml_failure": false
+  "retry_on_yaml_failure": false,
+  "preferred_users": []
 }
