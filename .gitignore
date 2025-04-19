@@ -3,3 +3,4 @@ config.json
 *venv
 profile
 *.log
+__pycache__
