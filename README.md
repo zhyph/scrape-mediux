@@ -70,7 +70,8 @@ cp config.example.json config.json
   "cron": "cron_expression",
   "process_all": false,
   "TZ": "your_timezone",
-  "chromedriver_path": "/path/to/chromedriver"
+  "chromedriver_path": "/path/to/chromedriver",
+  "preferred_users": ["User1", "User2"]
 }
 ```
 
@@ -111,6 +112,7 @@ These are just examples, you can name your folders whatever you want, but the sc
 - **`process_all`**: A boolean value (`true` or `false`) to determine whether to process all items, ignoring previously processed or cached items.
 - **`TZ`**: The timezone to use for scheduling and logging. This can also be passed as an environment variable.
 - **`chromedriver_path`**: The path to the ChromeDriver executable. If omitted, the script will use `webdriver-manager` to automatically download and manage ChromeDriver.
+- **`preferred_users`**: A list of Mediux usernames to prioritize when fetching YAML data. The script will search for YAML buttons from these users in the specified order and use the first one found. If none are found, it will use the first available YAML button. (CASE SENSITIVE)
 
 ## Usage (Local)
 
@@ -143,6 +145,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--output_dir`: Directory to copy the output files to.
 - `--process_all`: Process all items regardless of whether they have been processed before.
 - `--chromedriver_path`: Path to the ChromeDriver executable.
+- `--preferred_users`: List of Mediux usernames to prioritize when fetching YAML data.
 
 ## Usage (Docker)
 

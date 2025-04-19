@@ -1,6 +1,5 @@
 import os
 import re
-import time
 import argparse
 import requests
 import pickle
@@ -262,7 +261,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
     return tmdb_id, media_type
 
 
-def scrape_mediux(driver, tmdb_id, media_type):
+def scrape_mediux(driver, tmdb_id, media_type, preferred_users=None):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
     base_url = "https://mediux.pro"
     if media_type == "movie":
@@ -271,18 +270,38 @@ def scrape_mediux(driver, tmdb_id, media_type):
         url = f"{base_url}/shows/{tmdb_id}"
 
     driver.get(url)
-    
+
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
 
     try:
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, yaml_xpath)
+        yaml_button = None
+
+        if preferred_users and len(preferred_users) > 0:
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, yaml_xpath))
             )
-        )
-        yaml_button = driver.find_element(
-            By.XPATH, yaml_xpath
-        )
+
+            logger.info(
+                f"Looking for YAML from preferred users: {', '.join(preferred_users)}"
+            )
+            for user in preferred_users:
+                user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
+                user_elements = driver.find_elements(By.XPATH, user_xpath)
+
+                if user_elements:
+                    logger.info(f"Found YAML button from preferred user: {user}")
+                    yaml_button = user_elements[0]
+                    break
+
+        if not yaml_button:
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, yaml_xpath))
+            )
+            yaml_button = driver.find_element(By.XPATH, yaml_xpath)
+            logger.debug(
+                "Using first available YAML button (no matching preferred user found)"
+            )
+
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
         yaml_element = WebDriverWait(driver, 20).until(
@@ -304,9 +323,7 @@ def scrape_mediux(driver, tmdb_id, media_type):
         return yaml_data
     except Exception as e:
         # Check if the error is due to the YAML button not being found
-        if not driver.find_elements(
-            By.XPATH, yaml_xpath
-        ):
+        if not driver.find_elements(By.XPATH, yaml_xpath):
             logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
             return ""
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
@@ -532,9 +549,15 @@ def run(
     headless=True,
     process_all=False,
     chromedriver_path=None,
+    preferred_users=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder
     logger.info("Starting the script...")
+
+    if preferred_users and len(preferred_users) > 0:
+        logger.info(f"Using preferred users: {', '.join(preferred_users)}")
+    else:
+        logger.info("No preferred users specified, will use first available YAML data")
 
     validate_path(root_folder, "Root folder")
 
@@ -623,7 +646,9 @@ def run(
                     f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
                 )
                 if tmdb_id:
-                    yaml_data = scrape_mediux(driver, tmdb_id, media_type)
+                    yaml_data = scrape_mediux(
+                        driver, tmdb_id, media_type, preferred_users
+                    )
                     if not yaml_data:
                         logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
                         continue
@@ -671,6 +696,9 @@ def schedule_run(cron_expression):
                     sonarr_endpoint,
                     selected_folders,
                     headless,
+                    process_all,
+                    chromedriver_path,
+                    preferred_users,
                 )
                 write_data_to_files()
             except Exception as e:
@@ -737,6 +765,11 @@ if __name__ == "__main__":
         type=str,
         help="Path to the ChromeDriver executable",
     )
+    parser.add_argument(
+        "--preferred_users",
+        nargs="*",
+        help="List of preferred Mediux users to prioritize when fetching YAML data",
+    )
 
     args = parser.parse_args()
 
@@ -789,6 +822,11 @@ if __name__ == "__main__":
         if args.chromedriver_path is not None
         else config.get("chromedriver_path")
     )
+    preferred_users = (
+        args.preferred_users
+        if args.preferred_users is not None
+        else config.get("preferred_users")
+    )
 
     if root_folder:
         try:
@@ -817,6 +855,7 @@ if __name__ == "__main__":
                 headless,
                 process_all,
                 chromedriver_path,
+                preferred_users,
             )
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
