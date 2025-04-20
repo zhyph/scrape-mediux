@@ -102,34 +102,27 @@ def take_screenshot(driver: WebDriver, name: str):
         logger.error(f"Failed to save screenshot: {e}")
 
 
+def _validate_single_path(path, description):
+    """Helper function to validate a single path."""
+    if not path:
+        raise ValueError(f"{description} is not set. Please check your configuration.")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{description} '{path}' does not exist. Please check your configuration."
+        )
+    if not os.path.isdir(path):
+        raise NotADirectoryError(
+            f"{description} '{path}' is not a directory. Please check your configuration."
+        )
+
+
 def validate_path(path, description="Path"):
+    """Validates that a path or list of paths exists and is a directory."""
     if isinstance(path, list):
         for p in path:
-            if not p:
-                raise ValueError(
-                    f"{description} contains an empty path. Please check your configuration."
-                )
-            if not os.path.exists(p):
-                raise FileNotFoundError(
-                    f"{description} '{p}' does not exist. Please check your configuration."
-                )
-            if not os.path.isdir(p):
-                raise NotADirectoryError(
-                    f"{description} '{p}' is not a directory. Please check your configuration."
-                )
+            _validate_single_path(p, f"{description} entry")
     else:
-        if not path:
-            raise ValueError(
-                f"{description} is not set. Please check your configuration."
-            )
-        if not os.path.exists(path):
-            raise FileNotFoundError(
-                f"{description} '{path}' does not exist. Please check your configuration."
-            )
-        if not os.path.isdir(path):
-            raise NotADirectoryError(
-                f"{description} '{path}' is not a directory. Please check your configuration."
-            )
+        _validate_single_path(path, description)
 
 
 def load_config(config_path):
@@ -161,14 +154,49 @@ def load_config(config_path):
     exit(1)
 
 
-def get_media_ids(root_folder, selected_folders=None):
-    logger.info("Fetching media IDs from folder names...")
+def _extract_media_info_from_subfolder(subfolder):
+    """Extract media ID, name, and source from a subfolder name."""
+    imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
+    tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
+    tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
+    name_match = re.search(r"(.+)(?=\{(imdb|tvdb|tmdb)-)", subfolder)
 
+    if imdb_match and name_match:
+        media_id = imdb_match.group(1)
+        external_source = "imdb_id"
+    elif tvdb_match and name_match:
+        media_id = tvdb_match.group(1)
+        external_source = "tvdb_id"
+    elif tmdb_match and name_match:
+        media_id = tmdb_match.group(1)
+        external_source = "tmdb_id"
+    else:
+        return None
+
+    media_name = name_match.group(1).strip()
+    return media_id, media_name, external_source
+
+
+def _process_subfolders(folder_path, folder, media_ids, folder_map):
+    """Process subfolders within a folder to extract media IDs."""
+    subfolders = os.listdir(folder_path)
+    for subfolder in subfolders:
+        subfolder_path = os.path.join(folder_path, subfolder)
+        if os.path.isdir(subfolder_path):
+            media_info = _extract_media_info_from_subfolder(subfolder)
+            if media_info:
+                media_id, media_name, external_source = media_info
+                media_ids.append((media_id, media_name, external_source))
+                folder_map[media_id].append(folder)
+
+
+def get_media_ids(root_folder, selected_folders=None):
+    """Get media IDs from folder names and return them with folder mappings."""
+    logger.info("Fetching media IDs from folder names...")
     validate_path(root_folder, "Root folder")
 
     media_ids = []
     folder_map = defaultdict(list)
-
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
 
     for root in root_folders:
@@ -178,32 +206,8 @@ def get_media_ids(root_folder, selected_folders=None):
             logger.debug(f"Searching folder: {folder}")
             folder_path = os.path.join(root, folder)
             if os.path.isdir(folder_path):
-                subfolders = os.listdir(folder_path)
-                for subfolder in subfolders:
-                    subfolder_path = os.path.join(folder_path, subfolder)
-                    if os.path.isdir(subfolder_path):
-                        imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
-                        tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
-                        tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
-                        name_match = re.search(
-                            r"(.+?)(?=\{(imdb|tvdb|tmdb)-)", subfolder
-                        )
-                        if imdb_match and name_match:
-                            media_id = imdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "imdb_id"
-                        elif tvdb_match and name_match:
-                            media_id = tvdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "tvdb_id"
-                        elif tmdb_match and name_match:
-                            media_id = tmdb_match.group(1)
-                            media_name = name_match.group(1).strip()
-                            external_source = "tmdb_id"
-                        else:
-                            continue
-                        media_ids.append((media_id, media_name, external_source))
-                        folder_map[media_id].append(folder)
+                _process_subfolders(folder_path, folder, media_ids, folder_map)
+
     logger.info(f"Found media IDs: {media_ids}")
     return media_ids, folder_map
 
@@ -261,63 +265,140 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
     return tmdb_id, media_type
 
 
-def scrape_mediux(driver, tmdb_id, media_type, retry_on_yaml_failure=False, preferred_users=None):
-    logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
+def _get_media_url_and_texts(media_type, tmdb_id):
+    """Helper function to get URL and text info based on media type."""
     base_url = "https://mediux.pro"
     if media_type == "movie":
         url = f"{base_url}/movies/{tmdb_id}"
+        updating_text = "Updating movie data"
+        success_text = "Movie updated successfully"
     else:
         url = f"{base_url}/shows/{tmdb_id}"
+        updating_text = "Updating show data"
+        success_text = "Show updated successfully"
+    return url, updating_text, success_text
+
+
+def _wait_for_update_completion(
+    driver, updating_text, success_text, media_type, tmdb_id
+):
+    """Helper function to wait for media update completion."""
+    try:
+        update_toast_xpath = (
+            f"//div[@data-title and contains(text(), '{updating_text}')]"
+        )
+        success_toast_xpath = (
+            f"//div[@data-title and contains(text(), '{success_text}')]"
+        )
+        update_toast_parent_xpath = (
+            f"//div[@data-content]//div[contains(text(), '{updating_text}')]"
+        )
+        success_toast_parent_xpath = (
+            f"//div[@data-content]//div[contains(text(), '{success_text}')]"
+        )
+
+        update_elements = driver.find_elements(
+            By.XPATH, update_toast_xpath
+        ) or driver.find_elements(By.XPATH, update_toast_parent_xpath)
+
+        if update_elements:
+            logger.info(
+                f"Detected updating process for {media_type} {tmdb_id}, waiting for completion..."
+            )
+            WebDriverWait(driver, 30).until(
+                lambda d: (
+                    len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
+                    and len(d.find_elements(By.XPATH, update_toast_parent_xpath)) == 0
+                )
+                or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
+                or len(d.find_elements(By.XPATH, success_toast_parent_xpath)) > 0
+            )
+            logger.info(f"Update process completed for {media_type} {tmdb_id}")
+            sleep(1)
+    except Exception as e:
+        logger.warning(f"Error while waiting for update process: {e}")
+
+
+def _wait_for_refresh_completion(driver, media_type, tmdb_id):
+    """Helper function to wait for refresh spinner completion."""
+    try:
+        refresh_spinner_xpath = "//svg[contains(@class, 'lucide-refresh-cw') and contains(@class, 'animate-spin')]"
+        spinner_elements = driver.find_elements(By.XPATH, refresh_spinner_xpath)
+        if spinner_elements:
+            logger.info(
+                f"Detected refresh operation for {media_type} {tmdb_id}, waiting for completion..."
+            )
+            WebDriverWait(driver, 30).until(
+                lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
+            )
+            logger.info("Refresh operation completed")
+            sleep(1)
+    except Exception as e:
+        logger.warning(f"Error while waiting for refresh spinner: {e}")
+
+
+def _find_yaml_button(driver, yaml_xpath, preferred_users):
+    """Helper function to find the YAML button, with support for preferred users."""
+    yaml_button = None
+
+    if preferred_users and len(preferred_users) > 0:
+        WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
+        )
+        logger.info(
+            f"Looking for YAML from preferred users: {', '.join(preferred_users)}"
+        )
+        for user in preferred_users:
+            user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
+            user_elements = driver.find_elements(By.XPATH, user_xpath)
+            if user_elements:
+                logger.info(f"Found YAML button from preferred user: {user}")
+                yaml_button = user_elements[0]
+                break
+
+    if not yaml_button:
+        WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
+        )
+        yaml_button = driver.find_element(By.XPATH, yaml_xpath)
+        logger.debug(
+            "Using first available YAML button (no matching preferred user found)"
+        )
+
+    return yaml_button
+
+
+def scrape_mediux(
+    driver, tmdb_id, media_type, retry_on_yaml_failure=False, preferred_users=None
+):
+    logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
+    url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
 
     driver.get(url)
-
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
+    sleep(5)
+
+    # Wait for any update process to complete
+    _wait_for_update_completion(
+        driver, updating_text, success_text, media_type, tmdb_id
+    )
+
+    # Wait for any refresh process to complete
+    _wait_for_refresh_completion(driver, media_type, tmdb_id)
 
     try:
-        yaml_button = None
-
-        if preferred_users and len(preferred_users) > 0:
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, yaml_xpath))
-            )
-
-            logger.info(
-                f"Looking for YAML from preferred users: {', '.join(preferred_users)}"
-            )
-            for user in preferred_users:
-                user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
-                user_elements = driver.find_elements(By.XPATH, user_xpath)
-
-                if user_elements:
-                    logger.info(f"Found YAML button from preferred user: {user}")
-                    yaml_button = user_elements[0]
-                    break
-
-        if not yaml_button:
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, yaml_xpath))
-            )
-            yaml_button = driver.find_element(By.XPATH, yaml_xpath)
-            logger.debug(
-                "Using first available YAML button (no matching preferred user found)"
-            )
-
+        # Find and click YAML button
+        yaml_button = _find_yaml_button(driver, yaml_xpath, preferred_users)
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
+
+        # Get YAML content
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
-
-        WebDriverWait(driver, 20).until_not(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[contains(text(), 'Updating')]")
-            )
-        )
-
         WebDriverWait(driver, 20).until(
             lambda d: yaml_element.get_attribute("innerText").strip() != ""
         )
-
         yaml_data = yaml_element.get_attribute("innerText")
         logger.info(f"YAML data loaded for TMDB ID {tmdb_id}.")
         return yaml_data
@@ -338,6 +419,7 @@ def scrape_mediux(driver, tmdb_id, media_type, retry_on_yaml_failure=False, pref
                 tmdb_id,
                 media_type,
                 retry_on_yaml_failure=False,
+                preferred_users=preferred_users,
             )
 
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
@@ -482,16 +564,8 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     return None, None
 
 
-def write_data_to_files():
-    global new_data, folder_bulk_data, output_dir
-
-    validate_path(root_folder, "Root folder")
-
-    logger.info("Writing data to files...")
-
-    os.makedirs("./out/kometa", exist_ok=True)
-    logger.debug("Created output directory './out/kometa'.")
-
+def _collect_existing_urls():
+    """Helper function to collect existing URLs from kometa files."""
     existing_urls = set()
 
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
@@ -504,32 +578,78 @@ def write_data_to_files():
                 file_path = f"./out/kometa/{folder}_data.yml"
                 existing_urls.update(load_bulk_data(file_path, True))
 
+    return existing_urls
+
+
+def _update_data_file(folder, data, existing_urls):
+    """Helper function to update a single data file."""
+    file_name = f"./out/kometa/{folder}_data.yml"
+    total_urls = 0
+
+    if os.path.exists(file_name):
+        with open(file_name, "r", encoding="utf-8") as f:
+            existing_data = yaml.load(f)
+            if not existing_data:
+                existing_data = {"metadata": {}}
+    else:
+        existing_data = {"metadata": {}}
+
+    for _, yaml_data in data.items():
+        existing_data["metadata"].update(yaml.load(yaml_data))
+        urls = extract_set_urls(yaml_data)
+        existing_urls.update(urls)
+        total_urls += len(urls)
+
+    with open(file_name, "w", encoding="utf-8") as f:
+        yaml.dump(existing_data, f)
+
+    return file_name, total_urls
+
+
+def _copy_to_output_dir():
+    """Helper function to copy files to output directory if specified."""
+    if not output_dir:
+        return
+
+    logger.info(f"Copying files to {output_dir}...")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        logger.debug(f"Created output directory {output_dir}.")
+
+    for filename in os.listdir("./out/kometa"):
+        src_file = os.path.join("./out/kometa", filename)
+        dst_file = os.path.join(output_dir, filename)
+        shutil.copy2(src_file, dst_file)
+    logger.info(f"Files copied to {output_dir}.")
+
+
+def write_data_to_files():
+    """Main function to write scraped data to files."""
+    global new_data, folder_bulk_data, output_dir
+
+    validate_path(root_folder, "Root folder")
+    logger.info("Writing data to files...")
+
+    os.makedirs("./out/kometa", exist_ok=True)
+    logger.debug("Created output directory './out/kometa'.")
+
+    # Collect existing URLs
+    existing_urls = _collect_existing_urls()
+
+    # Update data files
     updated_files = []
     total_urls_extracted = 0
 
     for folder, data in new_data.items():
-        file_name = f"./out/kometa/{folder}_data.yml"
-        if os.path.exists(file_name):
-            with open(file_name, "r", encoding="utf-8") as f:
-                existing_data = yaml.load(f)
-                if not existing_data:
-                    existing_data = {"metadata": {}}
-        else:
-            existing_data = {"metadata": {}}
-
-        for _, yaml_data in data.items():
-            existing_data["metadata"].update(yaml.load(yaml_data))
-            urls = extract_set_urls(yaml_data)
-            existing_urls.update(urls)
-            total_urls_extracted += len(urls)
-
-        with open(file_name, "w", encoding="utf-8") as f:
-            yaml.dump(existing_data, f)
+        file_name, urls_count = _update_data_file(folder, data, existing_urls)
         updated_files.append(file_name)
+        total_urls_extracted += urls_count
 
+    # Log results
     logger.info(f"Updated {len(updated_files)} files: {', '.join(updated_files)}")
     logger.info(f"Extracted a total of {total_urls_extracted} unique set URLs.")
 
+    # Write set URLs to bulk file
     with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
         for url in sorted(existing_urls):
             f.write(url + "\n")
@@ -538,17 +658,8 @@ def write_data_to_files():
     save_cache(cache, CACHE_FILE)
     logger.info("Data writing completed.")
 
-    if output_dir:
-        logger.info(f"Copying files to {output_dir}...")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            logger.debug(f"Created output directory {output_dir}.")
-
-        for filename in os.listdir("./out/kometa"):
-            src_file = os.path.join("./out/kometa", filename)
-            dst_file = os.path.join(output_dir, filename)
-            shutil.copy2(src_file, dst_file)
-        logger.info(f"Files copied to {output_dir}.")
+    # Copy to output directory if specified
+    _copy_to_output_dir()
 
 
 def run(
@@ -631,22 +742,19 @@ def run(
                 for folder in folder_map[media_id]:
                     curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
-                    if media_type == "tv":
-                        if tvdb_id is not None:
-                            if (
-                                tvdb_id in curr_bulk_data.get("metadata", {})
-                                and not process_all
-                            ):
-                                if not ended:
-                                    logger.info(
-                                        f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
-                                    )
-                                    del curr_bulk_data["metadata"][tvdb_id]
-                                else:
-                                    already_processed = True
-                                    logger.info(
-                                        f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
-                                    )
+                    if (media_type == "tv" and tvdb_id is not None and
+                        tvdb_id in curr_bulk_data.get("metadata", {}) and 
+                        not process_all):
+                        if not ended:
+                            logger.info(
+                                f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
+                            )
+                            del curr_bulk_data["metadata"][tvdb_id]
+                        else:
+                            already_processed = True
+                            logger.info(
+                                f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
+                            )
 
                     if tmdb_id in curr_bulk_data["metadata"] and not process_all:
                         already_processed = True
