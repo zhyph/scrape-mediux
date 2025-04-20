@@ -285,36 +285,46 @@ def _wait_for_update_completion(
     """Helper function to wait for media update completion."""
     try:
         update_toast_xpath = (
-            f"//div[@data-title and contains(text(), '{updating_text}')]"
+            f"//li[contains(@class, 'toast')]//div[contains(text(), '{updating_text}')]"
         )
         success_toast_xpath = (
-            f"//div[@data-title and contains(text(), '{success_text}')]"
-        )
-        update_toast_parent_xpath = (
-            f"//div[@data-content]//div[contains(text(), '{updating_text}')]"
-        )
-        success_toast_parent_xpath = (
-            f"//div[@data-content]//div[contains(text(), '{success_text}')]"
+            f"//li[contains(@class, 'toast')]//div[contains(text(), '{success_text}')]"
         )
 
-        update_elements = driver.find_elements(
-            By.XPATH, update_toast_xpath
-        ) or driver.find_elements(By.XPATH, update_toast_parent_xpath)
+        logger.debug(f"Checking page status for {media_type} {tmdb_id}...")
+
+        update_elements = driver.find_elements(By.XPATH, update_toast_xpath)
+        success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
 
         if update_elements:
+            toast_text = update_elements[0].text
+            logger.info(f"Page status: Updating - '{toast_text}'")
             logger.info(
                 f"Detected updating process for {media_type} {tmdb_id}, waiting for completion..."
             )
+
             WebDriverWait(driver, 30).until(
-                lambda d: (
-                    len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
-                    and len(d.find_elements(By.XPATH, update_toast_parent_xpath)) == 0
-                )
-                or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
-                or len(d.find_elements(By.XPATH, success_toast_parent_xpath)) > 0
+                lambda d: (len(d.find_elements(By.XPATH, update_toast_xpath)) == 0)
+                or (len(d.find_elements(By.XPATH, success_toast_xpath)) > 0)
             )
-            logger.info(f"Update process completed for {media_type} {tmdb_id}")
+
+            success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
+            if success_elements:
+                logger.info(f"Page status: Success - '{success_elements[0].text}'")
+            else:
+                logger.info(
+                    f"Page status: Update process completed for {media_type} {tmdb_id}"
+                )
+
             sleep(1)
+        else:
+            if success_elements:
+                logger.info(f"Page status: Success - '{success_elements[0].text}'")
+            else:
+                logger.debug(
+                    f"Page status: No updating process detected for {media_type} {tmdb_id}"
+                )
+
     except Exception as e:
         logger.warning(f"Error while waiting for update process: {e}")
 
@@ -322,17 +332,28 @@ def _wait_for_update_completion(
 def _wait_for_refresh_completion(driver, media_type, tmdb_id):
     """Helper function to wait for refresh spinner completion."""
     try:
+        logger.debug(f"Checking for refresh operations on {media_type} {tmdb_id}...")
+
         refresh_spinner_xpath = "//svg[contains(@class, 'lucide-refresh-cw') and contains(@class, 'animate-spin')]"
         spinner_elements = driver.find_elements(By.XPATH, refresh_spinner_xpath)
+
         if spinner_elements:
+            logger.info(f"Page status: Refresh in progress for {media_type} {tmdb_id}")
             logger.info(
                 f"Detected refresh operation for {media_type} {tmdb_id}, waiting for completion..."
             )
+
             WebDriverWait(driver, 30).until(
                 lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
             )
-            logger.info("Refresh operation completed")
+
+            logger.info(f"Page status: Refresh completed for {media_type} {tmdb_id}")
             sleep(1)
+        else:
+            logger.debug(
+                f"Page status: No refresh operation detected for {media_type} {tmdb_id}"
+            )
+
     except Exception as e:
         logger.warning(f"Error while waiting for refresh spinner: {e}")
 
@@ -375,35 +396,52 @@ def scrape_mediux(
     url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
 
     driver.get(url)
+    logger.info(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
     sleep(5)
+    logger.debug("Waited 5 seconds for page to load completely")
 
-    # Wait for any update process to complete
+    try:
+        page_title = driver.title
+        logger.info(f"Page title: {page_title}")
+
+        toast_elements = driver.find_elements(
+            By.XPATH, "//li[contains(@class, 'toast')]"
+        )
+        if toast_elements:
+            logger.info(f"Found {len(toast_elements)} toast notifications on the page")
+            for i, toast in enumerate(toast_elements):
+                logger.debug(f"Toast {i+1} text: {toast.text}")
+    except Exception as e:
+        logger.debug(f"Error getting page info: {e}")
+
     _wait_for_update_completion(
         driver, updating_text, success_text, media_type, tmdb_id
     )
 
-    # Wait for any refresh process to complete
     _wait_for_refresh_completion(driver, media_type, tmdb_id)
 
     try:
-        # Find and click YAML button
+        logger.info(f"Looking for YAML button for {media_type} {tmdb_id}...")
         yaml_button = _find_yaml_button(driver, yaml_xpath, preferred_users)
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
+        logger.debug("Scrolled to YAML button")
         yaml_button.click()
+        logger.info("Clicked on YAML button")
 
-        # Get YAML content
+        logger.debug("Waiting for YAML code element to appear...")
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
+        logger.debug("Waiting for YAML content to be populated...")
         WebDriverWait(driver, 20).until(
             lambda d: yaml_element.get_attribute("innerText").strip() != ""
         )
         yaml_data = yaml_element.get_attribute("innerText")
-        logger.info(f"YAML data loaded for TMDB ID {tmdb_id}.")
+        yaml_len = len(yaml_data)
+        logger.info(f"YAML data loaded for TMDB ID {tmdb_id} ({yaml_len} characters)")
         return yaml_data
     except Exception as e:
-        # Check if the error is due to the YAML button not being found
         if not driver.find_elements(By.XPATH, yaml_xpath):
             logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
             return ""
@@ -413,6 +451,7 @@ def scrape_mediux(
                 f"YAML button found but an error occurred. Retrying by reloading the page for TMDB ID {tmdb_id}."
             )
             driver.refresh()
+            logger.info(f"Page refreshed for TMDB ID {tmdb_id}")
             sleep(5)
             return scrape_mediux(
                 driver,
@@ -742,9 +781,12 @@ def run(
                 for folder in folder_map[media_id]:
                     curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
 
-                    if (media_type == "tv" and tvdb_id is not None and
-                        tvdb_id in curr_bulk_data.get("metadata", {}) and 
-                        not process_all):
+                    if (
+                        media_type == "tv"
+                        and tvdb_id is not None
+                        and tvdb_id in curr_bulk_data.get("metadata", {})
+                        and not process_all
+                    ):
                         if not ended:
                             logger.info(
                                 f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
