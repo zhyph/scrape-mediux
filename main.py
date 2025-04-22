@@ -80,7 +80,7 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
             driver = webdriver.Chrome(
                 service=ChromeService(ChromeDriverManager().install()), options=options
             )
-        logger.info("WebDriver initialized successfully.")
+        logger.debug("WebDriver initialized successfully.")
         return driver
     except Exception as e:
         logger.error(f"Failed to initialize WebDriver: {e}")
@@ -212,48 +212,170 @@ def get_media_ids(root_folder, selected_folders=None):
     return media_ids, folder_map
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def fetch_tmdb_id(media_id, external_source, api_key, cache):
-    if external_source == "tmdb_id":
-        logger.info(f"Using TMDB ID {media_id} directly.")
+def _check_direct_tmdb_api(media_id, api_key):
+    """Helper function to check if media exists directly with TMDB ID"""
+    logger.info(f"Using TMDB ID {media_id} directly.")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "accept": "application/json",
+    }
 
-        url = f"https://api.themoviedb.org/3/movie/{media_id}"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "accept": "application/json",
-        }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            return media_id, "movie"
-        elif response.status_code == 404:
-            url = f"https://api.themoviedb.org/3/tv/{media_id}"
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                return media_id, "tv"
-            else:
-                logger.error(f"TMDB ID {media_id} not found as movie or TV show.")
-                return None, None
-        else:
-            response.raise_for_status()
+    tv_url = f"https://api.themoviedb.org/3/tv/{media_id}"
+    movie_url = f"https://api.themoviedb.org/3/movie/{media_id}"
+    tv_response = movie_response = None
 
-    if media_id in cache:
-        logger.info(f"Fetching TMDB ID for {external_source} {media_id} from cache.")
-        return cache[media_id]
+    try:
+        tv_response = requests.get(tv_url, headers=headers)
+    except Exception as e:
+        logger.debug(f"Error checking TV endpoint for TMDB ID {media_id}: {e}")
 
+    try:
+        movie_response = requests.get(movie_url, headers=headers)
+    except Exception as e:
+        logger.debug(f"Error checking movie endpoint for TMDB ID {media_id}: {e}")
+
+    tv_exists = tv_response is not None and tv_response.status_code == 200
+    movie_exists = movie_response is not None and movie_response.status_code == 200
+
+    return tv_exists, movie_exists, tv_response, movie_response
+
+
+def _resolve_direct_tmdb_conflict(media_id, media_name, tv_response, movie_response):
+    """Resolve conflict when a TMDB ID exists as both movie and TV show"""
+    logger.warning(
+        f"TMDB ID {media_id} exists as both movie and TV show. Using media name to decide."
+    )
+
+    if not media_name:
+        logger.info("No media name provided. Defaulting to TV show.")
+        return media_id, "tv"
+
+    tv_data = tv_response.json()
+    movie_data = movie_response.json()
+
+    tv_title = tv_data.get("name", "")
+    movie_title = movie_data.get("title", "")
+
+    tv_score = calculate_title_similarity(media_name, tv_title)
+    movie_score = calculate_title_similarity(media_name, movie_title)
+
+    logger.info(
+        f"Title match scores - TV: '{tv_title}' ({tv_score:.2f}) vs Movie: '{movie_title}' ({movie_score:.2f})"
+    )
+
+    if tv_score > movie_score:
+        logger.info(f"Selected TV show '{tv_title}' based on title similarity")
+        return media_id, "tv"
+    else:
+        logger.info(f"Selected movie '{movie_title}' based on title similarity")
+        return media_id, "movie"
+
+
+def _query_external_id(media_id, external_source, api_key):
+    """Query TMDB API for external ID (IMDb or TVDB)"""
     logger.info(f"Fetching TMDB ID for {external_source} {media_id} from TMDB API...")
     url = f"https://api.themoviedb.org/3/find/{media_id}?external_source={external_source}"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "accept": "application/json",
     }
+
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     data = response.json()
-    if data.get("movie_results"):
-        tmdb_id = data["movie_results"][0]["id"]
+
+    return data.get("movie_results", []), data.get("tv_results", [])
+
+
+def _resolve_external_id_conflict(
+    media_id, external_source, media_name, movie_result, tv_result
+):
+    """Resolve conflict when external ID matches both movie and TV show"""
+    logger.warning(f"{external_source} {media_id} matches both movie and TV show.")
+
+    if media_name:
+        tv_title = tv_result.get("name", "")
+        movie_title = movie_result.get("title", "")
+
+        tv_score = calculate_title_similarity(media_name, tv_title)
+        movie_score = calculate_title_similarity(media_name, movie_title)
+
+        logger.info(
+            f"Title match scores - TV: '{tv_title}' ({tv_score:.2f}) vs Movie: '{movie_title}' ({movie_score:.2f})"
+        )
+
+        if tv_score > movie_score:
+            logger.info(f"Selected TV show '{tv_title}' based on title similarity")
+            return tv_result["id"], "tv"
+        else:
+            logger.info(f"Selected movie '{movie_title}' based on title similarity")
+            return movie_result["id"], "movie"
+    else:
+        movie_confidence = movie_result.get("vote_count", 0) * 2 + movie_result.get(
+            "popularity", 0
+        )
+        tv_confidence = tv_result.get("vote_count", 0) * 2 + tv_result.get(
+            "popularity", 0
+        )
+
+        if tv_confidence > movie_confidence:
+            logger.info(
+                f"Selecting TV show (confidence score: {tv_confidence:.2f} vs {movie_confidence:.2f})"
+            )
+            return tv_result["id"], "tv"
+        else:
+            logger.info(
+                f"Selecting movie (confidence score: {movie_confidence:.2f} vs {tv_confidence:.2f})"
+            )
+            return movie_result["id"], "movie"
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+def fetch_tmdb_id(media_id, external_source, api_key, cache, media_name=None):
+    """
+    Fetch TMDB ID for a media item.
+
+    Args:
+        media_id: ID of the media (IMDb ID, TVDB ID, or TMDB ID)
+        external_source: Source of the ID (imdb_id, tvdb_id, or tmdb_id)
+        api_key: TMDB API key
+        cache: Cache dictionary to store/retrieve results
+        media_name: Name of the media item for title matching
+    """
+    if media_id in cache:
+        logger.info(f"Fetching TMDB ID for {external_source} {media_id} from cache.")
+        return cache[media_id]
+
+    if external_source == "tmdb_id":
+        tv_exists, movie_exists, tv_response, movie_response = _check_direct_tmdb_api(
+            media_id, api_key
+        )
+
+        if tv_exists and movie_exists:
+            return _resolve_direct_tmdb_conflict(
+                media_id, media_name, tv_response, movie_response
+            )
+        elif tv_exists:
+            logger.info(f"TMDB ID {media_id} identified as TV show.")
+            return media_id, "tv"
+        elif movie_exists:
+            logger.info(f"TMDB ID {media_id} identified as movie.")
+            return media_id, "movie"
+        else:
+            logger.error(f"TMDB ID {media_id} not found as movie or TV show.")
+            return None, None
+
+    movie_results, tv_results = _query_external_id(media_id, external_source, api_key)
+
+    if movie_results and tv_results:
+        tmdb_id, media_type = _resolve_external_id_conflict(
+            media_id, external_source, media_name, movie_results[0], tv_results[0]
+        )
+    elif movie_results:
+        tmdb_id = movie_results[0]["id"]
         media_type = "movie"
-    elif data.get("tv_results"):
-        tmdb_id = data["tv_results"][0]["id"]
+    elif tv_results:
+        tmdb_id = tv_results[0]["id"]
         media_type = "tv"
     else:
         tmdb_id, media_type = None, None
@@ -263,6 +385,29 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache):
         f"TMDB ID for {external_source} {media_id}: {tmdb_id}, Media Type: {media_type}"
     )
     return tmdb_id, media_type
+
+
+def calculate_title_similarity(title1, title2):
+    """
+    Calculate similarity between two titles.
+    Returns a score between 0 and 1, where 1 is an exact match.
+    """
+    if not title1 or not title2:
+        return 0
+
+    title1 = re.sub(r"[^\w\s]", "", title1.lower())
+    title2 = re.sub(r"[^\w\s]", "", title2.lower())
+
+    words1 = set(title1.split())
+    words2 = set(title2.split())
+
+    intersection = len(words1.intersection(words2))
+    union = len(words1.union(words2))
+
+    if union == 0:
+        return 0
+
+    return intersection / union
 
 
 def _get_media_url_and_texts(media_type, tmdb_id):
@@ -298,10 +443,8 @@ def _wait_for_update_completion(
 
         if update_elements:
             toast_text = update_elements[0].text
-            logger.info(f"Page status: Updating - '{toast_text}'")
-            logger.info(
-                f"Detected updating process for {media_type} {tmdb_id}, waiting for completion..."
-            )
+            logger.info(f"Page updating: '{toast_text}'")
+            logger.info(f"Waiting for update completion for {media_type} {tmdb_id}...")
 
             WebDriverWait(driver, 30).until(
                 lambda d: (len(d.find_elements(By.XPATH, update_toast_xpath)) == 0)
@@ -310,20 +453,16 @@ def _wait_for_update_completion(
 
             success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
             if success_elements:
-                logger.info(f"Page status: Success - '{success_elements[0].text}'")
+                logger.info(f"Update successful: '{success_elements[0].text}'")
             else:
-                logger.info(
-                    f"Page status: Update process completed for {media_type} {tmdb_id}"
-                )
+                logger.info(f"Update process completed for {media_type} {tmdb_id}")
 
             sleep(1)
         else:
             if success_elements:
-                logger.info(f"Page status: Success - '{success_elements[0].text}'")
+                logger.info(f"Update successful: '{success_elements[0].text}'")
             else:
-                logger.debug(
-                    f"Page status: No updating process detected for {media_type} {tmdb_id}"
-                )
+                logger.debug(f"No update needed for {media_type} {tmdb_id}")
 
     except Exception as e:
         logger.warning(f"Error while waiting for update process: {e}")
@@ -367,13 +506,13 @@ def _find_yaml_button(driver, yaml_xpath, preferred_users):
             EC.element_to_be_clickable((By.XPATH, yaml_xpath))
         )
         logger.info(
-            f"Looking for YAML from preferred users: {', '.join(preferred_users)}"
+            f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
         )
         for user in preferred_users:
             user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
             user_elements = driver.find_elements(By.XPATH, user_xpath)
             if user_elements:
-                logger.info(f"Found YAML button from preferred user: {user}")
+                logger.info(f"Using YAML from user: {user}")
                 yaml_button = user_elements[0]
                 break
 
@@ -382,9 +521,7 @@ def _find_yaml_button(driver, yaml_xpath, preferred_users):
             EC.element_to_be_clickable((By.XPATH, yaml_xpath))
         )
         yaml_button = driver.find_element(By.XPATH, yaml_xpath)
-        logger.debug(
-            "Using first available YAML button (no matching preferred user found)"
-        )
+        logger.debug("Using first available YAML button")
 
     return yaml_button
 
@@ -392,18 +529,18 @@ def _find_yaml_button(driver, yaml_xpath, preferred_users):
 def scrape_mediux(
     driver, tmdb_id, media_type, retry_on_yaml_failure=False, preferred_users=None
 ):
-    logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}...")
+    logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}")
     url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
 
     driver.get(url)
-    logger.info(f"Navigated to URL: {url}")
+    logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
     sleep(5)
-    logger.debug("Waited 5 seconds for page to load completely")
+    logger.debug("Waited for page to load")
 
     try:
         page_title = driver.title
-        logger.info(f"Page title: {page_title}")
+        logger.debug(f"Page title: {page_title}")
 
         toast_elements = driver.find_elements(
             By.XPATH, "//li[contains(@class, 'toast')]"
@@ -422,24 +559,21 @@ def scrape_mediux(
     _wait_for_refresh_completion(driver, media_type, tmdb_id)
 
     try:
-        logger.info(f"Looking for YAML button for {media_type} {tmdb_id}...")
+        logger.debug(f"Looking for YAML button for {media_type} {tmdb_id}...")
         yaml_button = _find_yaml_button(driver, yaml_xpath, preferred_users)
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
-        logger.debug("Scrolled to YAML button")
         yaml_button.click()
-        logger.info("Clicked on YAML button")
+        logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
 
-        logger.debug("Waiting for YAML code element to appear...")
         yaml_element = WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
-        logger.debug("Waiting for YAML content to be populated...")
         WebDriverWait(driver, 20).until(
             lambda d: yaml_element.get_attribute("innerText").strip() != ""
         )
         yaml_data = yaml_element.get_attribute("innerText")
         yaml_len = len(yaml_data)
-        logger.info(f"YAML data loaded for TMDB ID {tmdb_id} ({yaml_len} characters)")
+        logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
         return yaml_data
     except Exception as e:
         if not driver.find_elements(By.XPATH, yaml_xpath):
@@ -448,10 +582,10 @@ def scrape_mediux(
 
         if retry_on_yaml_failure:
             logger.warning(
-                f"YAML button found but an error occurred. Retrying by reloading the page for TMDB ID {tmdb_id}."
+                f"YAML button found but an error occurred. Retrying for TMDB ID {tmdb_id}."
             )
             driver.refresh()
-            logger.info(f"Page refreshed for TMDB ID {tmdb_id}")
+            logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
             sleep(5)
             return scrape_mediux(
                 driver,
@@ -463,9 +597,7 @@ def scrape_mediux(
 
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
-            f"Error scraping TMDB ID {tmdb_id}, possible to not have YAML\n"
-            f"This can be normal, but, if this ID had an YAML to be extracted and the script failed, "
-            f"create an issue in the script Github\n{e}"
+            f"Error scraping TMDB ID {tmdb_id}. This may be normal if no YAML is available."
         )
         return ""
 
@@ -717,14 +849,13 @@ def run(
     preferred_users=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder
-    logger.info("Starting the script...")
+    logger.info("Starting Mediux scraper...")
 
     if preferred_users and len(preferred_users) > 0:
-        logger.info(f"Using preferred users: {', '.join(preferred_users)}")
-    else:
-        logger.info("No preferred users specified, will use first available YAML data")
+        logger.info(f"Preferred users configured: {', '.join(preferred_users)}")
 
     validate_path(root_folder, "Root folder")
+    logger.info(f"Processing media from: {root_folder}")
 
     cache = load_cache(CACHE_FILE)
 
@@ -759,7 +890,7 @@ def run(
                 already_processed = False
                 try:
                     tmdb_id, media_type = fetch_tmdb_id(
-                        media_id, external_source, api_key, cache
+                        media_id, external_source, api_key, cache, media_name
                     )
                 except Exception as e:
                     logger.error(
