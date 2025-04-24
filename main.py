@@ -126,6 +126,7 @@ def validate_path(path, description="Path"):
 
 
 def load_config(config_path):
+    config_path = config_path.rstrip("/")
     full_config_path = f"{config_path}/{CONFIG_FILE}"
     if os.path.exists(full_config_path):
         logger.info(f"Loading configuration from {full_config_path}...")
@@ -798,7 +799,7 @@ def write_data_to_files():
     """Main function to write scraped data to files."""
     global new_data, folder_bulk_data, output_dir
 
-    validate_path(root_folder, "Root folder")
+    validate_path(path=root_folder, description="Root folder")
     logger.info("Writing data to files...")
 
     os.makedirs("./out/kometa", exist_ok=True)
@@ -812,7 +813,9 @@ def write_data_to_files():
     total_urls_extracted = 0
 
     for folder, data in new_data.items():
-        file_name, urls_count = _update_data_file(folder, data, existing_urls)
+        file_name, urls_count = _update_data_file(
+            folder=folder, data=data, existing_urls=existing_urls
+        )
         updated_files.append(file_name)
         total_urls_extracted += urls_count
 
@@ -826,7 +829,7 @@ def write_data_to_files():
             f.write(url + "\n")
     logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
 
-    save_cache(cache, CACHE_FILE)
+    save_cache(updated_cache=cache, cache_file=CACHE_FILE)
     logger.info("Data writing completed.")
 
     # Copy to output directory if specified
@@ -854,10 +857,10 @@ def run(
     if preferred_users and len(preferred_users) > 0:
         logger.info(f"Preferred users configured: {', '.join(preferred_users)}")
 
-    validate_path(root_folder, "Root folder")
+    validate_path(path=root_folder, description="Root folder")
     logger.info(f"Processing media from: {root_folder}")
 
-    cache = load_cache(CACHE_FILE)
+    cache = load_cache(cache_file=CACHE_FILE)
 
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
     folder_cache = {root: os.listdir(root) for root in root_folders}
@@ -866,22 +869,33 @@ def run(
     for root, folders in folder_cache.items():
         folder_bulk_data.update(
             {
-                folder: load_bulk_data(f"./out/kometa/{folder}_data.yml", False)
+                folder: load_bulk_data(
+                    bulk_data_file=f"./out/kometa/{folder}_data.yml",
+                    only_set_urls=False,
+                )
                 for folder in folders
                 if os.path.isdir(os.path.join(root, folder))
             }
         )
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
-    media_ids, folder_map = get_media_ids(root_folder, selected_folders)
+    media_ids, folder_map = get_media_ids(
+        root_folder=root_folder, selected_folders=selected_folders
+    )
     logger.info(f"Media IDs to process: {len(media_ids)}")
 
-    driver = init_driver(headless, profile_path, chromedriver_path)
+    driver = init_driver(
+        headless=headless,
+        profile_path=profile_path,
+        chromedriver_path=chromedriver_path,
+    )
 
     updated_titles = []
 
     try:
-        login_mediux(driver, username, password, nickname)
+        login_mediux(
+            driver=driver, username=username, password=password, nickname=nickname
+        )
 
         with logging_redirect_tqdm():
             for media_id, media_name, external_source in tqdm(
@@ -890,7 +904,11 @@ def run(
                 already_processed = False
                 try:
                     tmdb_id, media_type = fetch_tmdb_id(
-                        media_id, external_source, api_key, cache, media_name
+                        media_id=media_id,
+                        external_source=external_source,
+                        api_key=api_key,
+                        cache=cache,
+                        media_name=media_name,
                     )
                 except Exception as e:
                     logger.error(
@@ -901,7 +919,9 @@ def run(
                 if media_type == "tv":
                     try:
                         tvdb_id, ended = check_series_status(
-                            media_name, sonarr_api_key, sonarr_endpoint
+                            media_name=media_name,
+                            sonarr_api_key=sonarr_api_key,
+                            sonarr_endpoint=sonarr_endpoint,
                         )
                     except Exception as e:
                         logger.error(
@@ -943,11 +963,11 @@ def run(
                 )
                 if tmdb_id:
                     yaml_data = scrape_mediux(
-                        driver,
-                        tmdb_id,
-                        media_type,
-                        retry_on_yaml_failure,
-                        preferred_users,
+                        driver=driver,
+                        tmdb_id=tmdb_id,
+                        media_type=media_type,
+                        retry_on_yaml_failure=retry_on_yaml_failure,
+                        preferred_users=preferred_users,
                     )
                     if not yaml_data:
                         logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
@@ -987,19 +1007,19 @@ def schedule_run(cron_expression):
             logger.info("Scheduled run started...")
             try:
                 run(
-                    api_key,
-                    username,
-                    password,
-                    profile_path,
-                    nickname,
-                    sonarr_api_key,
-                    sonarr_endpoint,
-                    selected_folders,
-                    headless,
-                    retry_on_yaml_failure,
-                    process_all,
-                    chromedriver_path,
-                    preferred_users,
+                    api_key=api_key,
+                    username=username,
+                    password=password,
+                    profile_path=profile_path,
+                    nickname=nickname,
+                    sonarr_api_key=sonarr_api_key,
+                    sonarr_endpoint=sonarr_endpoint,
+                    selected_folders=selected_folders,
+                    headless=headless,
+                    process_all=process_all,
+                    chromedriver_path=chromedriver_path,
+                    retry_on_yaml_failure=retry_on_yaml_failure,
+                    preferred_users=preferred_users,
                 )
                 write_data_to_files()
             except Exception as e:
@@ -1153,22 +1173,22 @@ if __name__ == "__main__":
 
     try:
         if cron_expression:
-            schedule_run(cron_expression)
+            schedule_run(cron_expression=cron_expression)
         else:
             run(
-                api_key,
-                username,
-                password,
-                profile_path,
-                nickname,
-                sonarr_api_key,
-                sonarr_endpoint,
-                selected_folders,
-                headless,
-                process_all,
-                chromedriver_path,
-                retry_on_yaml_failure,
-                preferred_users,
+                api_key=api_key,
+                username=username,
+                password=password,
+                profile_path=profile_path,
+                nickname=nickname,
+                sonarr_api_key=sonarr_api_key,
+                sonarr_endpoint=sonarr_endpoint,
+                selected_folders=selected_folders,
+                headless=headless,
+                process_all=process_all,
+                chromedriver_path=chromedriver_path,
+                retry_on_yaml_failure=retry_on_yaml_failure,
+                preferred_users=preferred_users,
             )
     except Exception as e:
         logger.error(f"Unhandled error: {e}")
