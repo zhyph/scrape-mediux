@@ -8,6 +8,7 @@ import json
 import croniter
 import shutil
 import logging
+import collections.abc
 from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -58,6 +59,18 @@ yaml = YAML()
 yaml.allow_duplicate_keys = True
 
 
+def to_standard_dict(item):
+    """Recursively convert ruamel.yaml objects to standard Python dicts/lists."""
+    if isinstance(item, collections.abc.Mapping):
+        return {k: to_standard_dict(v) for k, v in item.items()}
+    elif isinstance(item, collections.abc.Sequence) and not isinstance(
+        item, (str, bytes)
+    ):
+        return [to_standard_dict(x) for x in item]
+    else:
+        return item
+
+
 def init_driver(headless=True, profile_path=None, chromedriver_path=None):
     logger.info("Initializing WebDriver...")
     options = Options()
@@ -90,6 +103,10 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
 def take_screenshot(driver: WebDriver, name: str):
     screenshot_enabled = os.environ.get("SCREENSHOT") == "1"
     if not screenshot_enabled:
+        return
+
+    if config_path is None:
+        logger.warning("Configuration path is not set. Cannot save screenshot.")
         return
 
     screenshots_dir = os.path.join(config_path, "screenshots")
@@ -570,9 +587,17 @@ def scrape_mediux(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
         WebDriverWait(driver, 20).until(
-            lambda d: yaml_element.get_attribute("innerText").strip() != ""
+            lambda d: yaml_element.get_attribute("innerText").strip() != ""  # type: ignore
         )
         yaml_data = yaml_element.get_attribute("innerText")
+
+        if yaml_data is None:
+            logger.warning(
+                f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
+                "This might indicate an issue with the page or element structure. Returning empty."
+            )
+            return ""
+
         yaml_len = len(yaml_data)
         logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
         return yaml_data
@@ -901,7 +926,6 @@ def run(
             for media_id, media_name, external_source in tqdm(
                 media_ids, desc="Processing media IDs"
             ):
-                already_processed = False
                 try:
                     tmdb_id, media_type = fetch_tmdb_id(
                         media_id=media_id,
@@ -912,71 +936,214 @@ def run(
                     )
                 except Exception as e:
                     logger.error(
-                        f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}"
+                        f"Failed to fetch TMDB ID for {external_source} {media_id} ('{media_name}'): {e}"
                     )
                     continue
 
+                if not tmdb_id:
+                    logger.debug(
+                        f"No TMDB ID found for {media_id} ('{media_name}', {external_source}), skipping."
+                    )
+                    continue
+
+                tvdb_id, ended = None, None
                 if media_type == "tv":
                     try:
                         tvdb_id, ended = check_series_status(
-                            media_name=media_name,
+                            media_name=media_name,  # Sonarr uses name, can also lookup by tvdbid if folder name has it
                             sonarr_api_key=sonarr_api_key,
                             sonarr_endpoint=sonarr_endpoint,
                         )
+                        if (
+                            not tvdb_id and external_source == "tvdb_id"
+                        ):  # If sonarr failed but we have tvdb from folder
+                            tvdb_id = int(media_id)  # media_id from folder is string
+                            logger.info(
+                                f"Using TVDB ID {tvdb_id} from folder name for '{media_name}' as Sonarr lookup failed."
+                            )
+                        elif not tvdb_id:
+                            logger.warning(
+                                f"Could not determine TVDB ID for TV show '{media_name}' (TMDB: {tmdb_id}) via Sonarr."
+                            )
                     except Exception as e:
                         logger.error(
-                            f"Failed to check series status for {media_name}: {e}"
+                            f"Failed to check series status for '{media_name}' (TMDB: {tmdb_id}): {e}"
                         )
-                        continue
+                        # Continue, tvdb_id might be None, affecting checks below
 
-                for folder in folder_map[media_id]:
-                    curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
+                old_parsed_yaml_content = None
+                is_already_in_yaml = False
 
-                    if (
-                        media_type == "tv"
-                        and tvdb_id is not None
-                        and tvdb_id in curr_bulk_data.get("metadata", {})
-                        and not process_all
-                    ):
-                        if not ended:
+                # Determine the key used in existing YAML files (TVDB for TV, TMDB for Movies)
+                key_for_existing_yaml = None
+                if media_type == "tv":
+                    if tvdb_id:
+                        key_for_existing_yaml = tvdb_id
+                elif media_type == "movie":
+                    key_for_existing_yaml = tmdb_id
+
+                if key_for_existing_yaml:
+                    for f_name_map in folder_map.get(media_id, []):
+                        f_bulk_data = folder_bulk_data.get(f_name_map, {})
+                        metadata = f_bulk_data.get("metadata", {})
+
+                        content_found_in_yaml = False
+                        if key_for_existing_yaml in metadata:
+                            old_parsed_yaml_content = metadata[key_for_existing_yaml]
+                            content_found_in_yaml = True
+                        elif str(key_for_existing_yaml) in metadata:
+                            old_parsed_yaml_content = metadata[
+                                str(key_for_existing_yaml)
+                            ]
+                            content_found_in_yaml = True
+
+                        if content_found_in_yaml:
+                            is_already_in_yaml = True
+                            break  # Found old content for this media item
+
+                should_skip_scraping = False
+                if is_already_in_yaml and not process_all:
+                    if media_type == "tv":
+                        if ended:  # TV show has ended and is already in YAML
+                            should_skip_scraping = True
                             logger.info(
-                                f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
+                                f"Skipping ended TV show '{media_name}' (TVDB: {key_for_existing_yaml}, TMDB: {tmdb_id}) as it's already in YAML and not processing all."
                             )
-                            del curr_bulk_data["metadata"][tvdb_id]
-                        else:
-                            already_processed = True
+                        else:  # TV show is ongoing and already in YAML
                             logger.info(
-                                f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
+                                f"Ongoing TV show '{media_name}' (TVDB: {key_for_existing_yaml}, TMDB: {tmdb_id}) is in YAML. Will re-scrape for comparison."
                             )
-
-                    if tmdb_id in curr_bulk_data["metadata"] and not process_all:
-                        already_processed = True
+                    elif media_type == "movie":  # Movie is already in YAML
+                        should_skip_scraping = True
                         logger.info(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
+                            f"Skipping movie '{media_name}' (TMDB: {key_for_existing_yaml}) as it's already in YAML and not processing all."
                         )
 
-                if already_processed:
+                if should_skip_scraping:
                     continue
 
                 logger.info(
-                    f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
+                    f"Processing Media: '{media_name}' (Source ID: {media_id}, TMDB ID: {tmdb_id}, TVDB ID: {tvdb_id if tvdb_id else 'N/A'}, Type: {media_type})"
                 )
-                if tmdb_id:
-                    yaml_data = scrape_mediux(
-                        driver=driver,
-                        tmdb_id=tmdb_id,
-                        media_type=media_type,
-                        retry_on_yaml_failure=retry_on_yaml_failure,
-                        preferred_users=preferred_users,
+
+                yaml_data = scrape_mediux(
+                    driver=driver,
+                    tmdb_id=tmdb_id,  # Mediux URLs use TMDB ID
+                    media_type=media_type,
+                    retry_on_yaml_failure=retry_on_yaml_failure,
+                    preferred_users=preferred_users,
+                )
+                if not yaml_data:
+                    logger.warning(
+                        f"No YAML data found from Mediux for '{media_name}' (TMDB ID {tmdb_id})."
                     )
-                    if not yaml_data:
-                        logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
-                        continue
+                    continue
 
-                    for folder in folder_map[media_id]:
-                        new_data[folder][tmdb_id] = yaml_data
+                parsed_new_yaml_wrapper = None
+                new_yaml_content_to_compare = None
 
-                    updated_titles.append(media_name)
+                try:
+                    parsed_new_yaml_wrapper = yaml.load(yaml_data)
+                    if parsed_new_yaml_wrapper and isinstance(
+                        parsed_new_yaml_wrapper, dict
+                    ):
+                        # The key in the *scraped* YAML from Mediux.
+                        # For TV, this is usually TVDB ID. For Movies, TMDB ID.
+                        expected_key_in_scraped = None
+                        if media_type == "tv":
+                            expected_key_in_scraped = tvdb_id
+                        elif media_type == "movie":
+                            expected_key_in_scraped = tmdb_id
+
+                        actual_key_found_in_scraped = None
+                        if expected_key_in_scraped:
+                            if expected_key_in_scraped in parsed_new_yaml_wrapper:
+                                actual_key_found_in_scraped = expected_key_in_scraped
+                            elif (
+                                str(expected_key_in_scraped) in parsed_new_yaml_wrapper
+                            ):
+                                actual_key_found_in_scraped = str(
+                                    expected_key_in_scraped
+                                )
+
+                        if actual_key_found_in_scraped:
+                            new_yaml_content_to_compare = parsed_new_yaml_wrapper[
+                                actual_key_found_in_scraped
+                            ]
+                        elif len(parsed_new_yaml_wrapper) == 1:
+                            temp_key = list(parsed_new_yaml_wrapper.keys())[0]
+                            new_yaml_content_to_compare = parsed_new_yaml_wrapper[
+                                temp_key
+                            ]
+                            logger.warning(
+                                f"Scraped YAML for '{media_name}' (TMDB: {tmdb_id}) was keyed by '{temp_key}' instead of expected '{expected_key_in_scraped}'. Using content from '{temp_key}'."
+                            )
+                        else:
+                            logger.error(
+                                f"Could not find expected key '{expected_key_in_scraped}' or a single key in newly parsed YAML for '{media_name}': {list(parsed_new_yaml_wrapper.keys())}"
+                            )
+                    elif parsed_new_yaml_wrapper is not None:
+                        logger.error(
+                            f"Parsed YAML for '{media_name}' (TMDB ID {tmdb_id}) is not a valid dictionary or is empty."
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to parse newly scraped YAML for '{media_name}' (TMDB ID {tmdb_id}): {e}"
+                    )
+
+                title_should_be_updated = False
+                if media_type == "tv":
+                    if new_yaml_content_to_compare is not None:
+                        std_new_content = to_standard_dict(new_yaml_content_to_compare)
+                        if (
+                            old_parsed_yaml_content is None
+                        ):  # New TV entry (not found in existing YAMLs)
+                            title_should_be_updated = True
+                            logger.info(
+                                f"New TV show entry for '{media_name}' (TVDB: {key_for_existing_yaml if key_for_existing_yaml else tvdb_id}). Adding to updated titles."
+                            )
+                        else:
+                            std_old_content = to_standard_dict(old_parsed_yaml_content)
+                            if std_new_content != std_old_content:
+                                title_should_be_updated = True
+                                logger.info(
+                                    f"YAML data for TV show '{media_name}' (TVDB: {key_for_existing_yaml if key_for_existing_yaml else tvdb_id}) has changed."
+                                )
+                            else:
+                                logger.info(
+                                    f"YAML data for TV show '{media_name}' (TVDB: {key_for_existing_yaml if key_for_existing_yaml else tvdb_id}) is unchanged."
+                                )
+                    # If new_yaml_content_to_compare is None (bad new YAML), title_should_be_updated remains False.
+                else:  # For movies
+                    if (
+                        new_yaml_content_to_compare is not None
+                    ):  # Check if new YAML content was successfully extracted
+                        std_new_content = to_standard_dict(new_yaml_content_to_compare)
+                        if old_parsed_yaml_content is None:  # New movie entry
+                            title_should_be_updated = True
+                            logger.info(
+                                f"New movie entry for '{media_name}' (TMDB: {tmdb_id}). Adding to updated titles."
+                            )
+                        else:
+                            std_old_content = to_standard_dict(old_parsed_yaml_content)
+                            if std_new_content != std_old_content:
+                                title_should_be_updated = True
+                                logger.info(
+                                    f"YAML data for movie '{media_name}' (TMDB: {tmdb_id}) has changed."
+                                )
+                            else:
+                                logger.info(
+                                    f"YAML data for movie '{media_name}' (TMDB: {tmdb_id}) is unchanged."
+                                )
+
+                if title_should_be_updated:
+                    updated_titles.append(
+                        f"{media_name} ({'TVDB: ' + str(tvdb_id) if media_type == 'tv' and tvdb_id else 'TMDB: ' + str(tmdb_id)})"
+                    )
+
+                for folder in folder_map[media_id]:
+                    new_data[folder][tmdb_id] = yaml_data
+
     finally:
         logger.info("Quitting WebDriver...")
         driver.quit()
