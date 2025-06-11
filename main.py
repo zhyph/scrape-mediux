@@ -515,37 +515,96 @@ def _wait_for_refresh_completion(driver, media_type, tmdb_id):
         logger.warning(f"Error while waiting for refresh spinner: {e}")
 
 
-def _find_yaml_button(driver, yaml_xpath, preferred_users):
-    """Helper function to find the YAML button, with support for preferred users."""
+def _find_yaml_button(driver, yaml_xpath, preferred_users, excluded_users=None):
+    """Helper function to find the YAML button, with support for preferred and excluded users."""
     yaml_button = None
+    all_yaml_buttons = WebDriverWait(driver, 10).until(
+        EC.presence_of_all_elements_located((By.XPATH, yaml_xpath))
+    )
+
+    if not all_yaml_buttons:
+        logger.warning("No YAML buttons found on the page.")
+        return None
+
+    if excluded_users:
+        logger.info(f"Excluding users: {', '.join(excluded_users)}")
+        filtered_buttons = []
+        for button in all_yaml_buttons:
+            try:
+                ancestor_div = button.find_element(
+                    By.XPATH,
+                    "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                )
+                user_link_element = ancestor_div.find_element(
+                    By.XPATH, ".//a[contains(@href, '/user/')]"
+                )
+                user_href = user_link_element.get_attribute("href")
+                if user_href:
+                    username_match = re.search(r"/user/([^/]+)", user_href)
+                    if username_match:
+                        username = username_match.group(1)
+                        if username.lower() not in [
+                            ex_user.lower() for ex_user in excluded_users
+                        ]:
+                            filtered_buttons.append(button)
+                        else:
+                            logger.debug(f"Excluding YAML button from user: {username}")
+                    else:
+
+                        filtered_buttons.append(button)
+                else:
+                    filtered_buttons.append(button)
+            except Exception:
+                filtered_buttons.append(button)
+        all_yaml_buttons = filtered_buttons
+        if not all_yaml_buttons:
+            logger.warning("No YAML buttons left after filtering excluded users.")
+            return None
 
     if preferred_users and len(preferred_users) > 0:
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
-        )
         logger.info(
             f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
         )
         for user in preferred_users:
-            user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
-            user_elements = driver.find_elements(By.XPATH, user_xpath)
-            if user_elements:
-                logger.info(f"Using YAML from user: {user}")
-                yaml_button = user_elements[0]
+            for button in all_yaml_buttons:
+                try:
+                    ancestor_div = button.find_element(
+                        By.XPATH,
+                        "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                    )
+                    user_link_element = ancestor_div.find_element(
+                        By.XPATH, f".//a[@href='/user/{user.lower()}']"
+                    )
+                    user_button_in_link = user_link_element.find_element(
+                        By.XPATH, f"./button[contains(., '{user}')]"
+                    )
+                    if user_button_in_link:
+                        logger.info(f"Using YAML from preferred user: {user}")
+                        yaml_button = button
+                        break
+                except Exception:
+                    continue
+            if yaml_button:
                 break
 
-    if not yaml_button:
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
+    if not yaml_button and all_yaml_buttons:
+        yaml_button = all_yaml_buttons[0]
+        logger.debug("Using first available YAML button (after exclusions).")
+    elif not yaml_button:
+        logger.warning(
+            "No suitable YAML button found after considering preferences and exclusions."
         )
-        yaml_button = driver.find_element(By.XPATH, yaml_xpath)
-        logger.debug("Using first available YAML button")
 
     return yaml_button
 
 
 def scrape_mediux(
-    driver, tmdb_id, media_type, retry_on_yaml_failure=False, preferred_users=None
+    driver,
+    tmdb_id,
+    media_type,
+    retry_on_yaml_failure=False,
+    preferred_users=None,
+    excluded_users=None,
 ):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}")
     url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
@@ -578,7 +637,14 @@ def scrape_mediux(
 
     try:
         logger.debug(f"Looking for YAML button for {media_type} {tmdb_id}...")
-        yaml_button = _find_yaml_button(driver, yaml_xpath, preferred_users)
+        yaml_button = _find_yaml_button(
+            driver, yaml_xpath, preferred_users, excluded_users
+        )
+        if not yaml_button:
+            logger.warning(
+                f"No suitable YAML button found for TMDB ID {tmdb_id} after filtering."
+            )
+            return ""
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
         logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
@@ -619,6 +685,7 @@ def scrape_mediux(
                 media_type,
                 retry_on_yaml_failure=False,
                 preferred_users=preferred_users,
+                excluded_users=excluded_users,
             )
 
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
@@ -793,14 +860,12 @@ def _update_data_file(folder_name, data_to_write, existing_urls_set):
             loaded_data = yaml.load(f)
             if loaded_data and "metadata" in loaded_data:
                 current_file_data = loaded_data
-            elif (
-                loaded_data
-            ):  # Handle case where file exists but might not have metadata key
+            elif loaded_data:
                 current_file_data["metadata"] = loaded_data
 
     for _, item_yaml_data in data_to_write.items():
         parsed_item_yaml = yaml.load(item_yaml_data)
-        if parsed_item_yaml:  # Ensure it's not None
+        if parsed_item_yaml:
             current_file_data["metadata"].update(parsed_item_yaml)
         item_urls = extract_set_urls(item_yaml_data)
         existing_urls_set.update(item_urls)
@@ -812,7 +877,7 @@ def _update_data_file(folder_name, data_to_write, existing_urls_set):
     return file_name, total_urls
 
 
-def _copy_to_output_dir_local():  # Renamed to avoid conflict with global
+def _copy_to_output_dir_local():
     """Helper function to copy files to output directory if specified."""
     if not output_dir_global:
         return
@@ -871,7 +936,7 @@ def write_data_to_files():
     logger.info(f"Collected a total of {len(existing_urls)} unique set URLs.")
 
     with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
-        for url in sorted(list(existing_urls)):  # Ensure it's a list for sorting
+        for url in sorted(list(existing_urls)):
             f.write(url + "\n")
     logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
 
@@ -944,7 +1009,7 @@ def _get_existing_yaml_details(
             if key_for_existing_yaml_log in metadata:
                 old_parsed_yaml_content = metadata[key_for_existing_yaml_log]
                 content_found = True
-            elif str(key_for_existing_yaml_log) in metadata:  # Handle string keys
+            elif str(key_for_existing_yaml_log) in metadata:
                 old_parsed_yaml_content = metadata[str(key_for_existing_yaml_log)]
                 content_found = True
 
@@ -1013,7 +1078,7 @@ def _extract_comparable_content_from_scraped_yaml(
         if actual_key_found:
             return parsed_wrapper[actual_key_found]
         elif len(parsed_wrapper) == 1:
-            # Fallback: if only one key, use its content
+
             first_key = list(parsed_wrapper.keys())[0]
             logger.warning(
                 f"Scraped YAML for '{media_name}' (TMDB: {tmdb_id}) was keyed by '{first_key}' instead of expected '{expected_key}'. Using content from '{first_key}'."
@@ -1035,9 +1100,7 @@ def _compare_yaml_and_log_changes(
     media_name, media_type, id_for_logging, old_content, new_content_to_compare, logger
 ):
     """Compares old and new YAML content and logs the result."""
-    if (
-        new_content_to_compare is None
-    ):  # Should not happen if previous checks are fine, but good for safety
+    if new_content_to_compare is None:
         logger.warning(
             f"No new YAML content to compare for '{media_name}' (ID: {id_for_logging})."
         )
@@ -1077,10 +1140,11 @@ def _process_single_media_item(
     current_process_all,
     current_retry_on_yaml_failure,
     current_preferred_users,
+    current_excluded_users,
     folder_map_for_media,
     updated_titles_list,
 ):
-    global cache, new_data, folder_bulk_data, yaml  # Access globals needed by helpers
+    global cache, new_data, folder_bulk_data, yaml
 
     try:
         tmdb_id, media_type = fetch_tmdb_id(
@@ -1146,6 +1210,7 @@ def _process_single_media_item(
         media_type=media_type,
         retry_on_yaml_failure=current_retry_on_yaml_failure,
         preferred_users=current_preferred_users,
+        excluded_users=current_excluded_users,
     )
     if not new_raw_yaml:
         logger.warning(
@@ -1159,7 +1224,7 @@ def _process_single_media_item(
         media_type,
         tmdb_id,
         tvdb_id_for_tv,
-        yaml,  # Pass global yaml parser
+        yaml,
         logger,
     )
 
@@ -1203,12 +1268,15 @@ def run(
     current_chromedriver_path=None,
     current_retry_on_yaml_failure=False,
     current_preferred_users=None,
+    current_excluded_users=None,
 ):
-    global cache, new_data, folder_bulk_data, root_folder_global  # Access globals
+    global cache, new_data, folder_bulk_data, root_folder_global
     logger.info("Starting Mediux scraper...")
 
     if current_preferred_users:
         logger.info(f"Preferred users configured: {', '.join(current_preferred_users)}")
+    if current_excluded_users:
+        logger.info(f"Excluded users configured: {', '.join(current_excluded_users)}")
 
     validate_path(path=root_folder_global, description="Root folder")
     logger.info(f"Processing media from: {root_folder_global}")
@@ -1270,6 +1338,7 @@ def run(
                     current_process_all,
                     current_retry_on_yaml_failure,
                     current_preferred_users,
+                    current_excluded_users,
                     folder_map_for_media,
                     updated_titles_list,
                 )
@@ -1287,7 +1356,7 @@ def run(
             logger.info("No titles were updated.")
 
 
-def schedule_run(cron_expression, args_dict):  # Pass args_dict
+def schedule_run(cron_expression, args_dict):
     logger.info(f"Scheduling script with cron expression: {cron_expression}")
     base_time = datetime.now()
     logger.info(f"Current time: {base_time}")
@@ -1317,6 +1386,7 @@ def schedule_run(cron_expression, args_dict):  # Pass args_dict
                     current_chromedriver_path=args_dict["chromedriver_path"],
                     current_retry_on_yaml_failure=args_dict["retry_on_yaml_failure"],
                     current_preferred_users=args_dict["preferred_users"],
+                    current_excluded_users=args_dict["excluded_users"],
                 )
                 write_data_to_files()
             except Exception as e:
@@ -1341,8 +1411,7 @@ def _resolve_config_value_helper(
     """Helper to get value: command-line arg > environment variable > config file > default."""
     if arg_val is not None:
         if is_bool:
-            # For BooleanOptionalAction, arg_val is already True/False or None.
-            # bool(None) is False, but we want to proceed if None.
+
             return bool(arg_val)
         return arg_val
 
@@ -1356,7 +1425,7 @@ def _resolve_config_value_helper(
 
     file_val = current_file_config.get(conf_key)
     if file_val is not None:
-        # Assumes file_config types are correct (e.g., bools are bools, lists are lists)
+
         return file_val
 
     return default_val
@@ -1418,15 +1487,16 @@ def _parse_arguments_and_load_config():
         nargs="*",
         help="List of preferred Mediux users for YAML data",
     )
+    parser.add_argument(
+        "--excluded_users",
+        nargs="*",
+        help="List of Mediux users to exclude for YAML data",
+    )
 
     args = parser.parse_args()
 
-    # Load config from file
-    file_config = load_config(
-        args.config_path
-    )  # load_config already handles path and CONFIG_FILE
+    file_config = load_config(args.config_path)
 
-    # Resolve root_folder: can be list from config or comma-separated from arg/env
     root_folder_val = _resolve_config_value_helper(
         args.root_folder, "ROOT_FOLDER", "root_folder", file_config
     )
@@ -1434,14 +1504,11 @@ def _parse_arguments_and_load_config():
         root_folder_val = [
             rf.strip() for rf in root_folder_val.split(",") if rf.strip()
         ]
-    elif (
-        root_folder_val is None
-    ):  # Ensure it's an empty list if not set, rather than None
+    elif root_folder_val is None:
         root_folder_val = []
 
-    # Consolidate configuration
     app_config = {
-        "config_path_val": args.config_path,  # Special, as it's used to load file_config
+        "config_path_val": args.config_path,
         "root_folder_val": root_folder_val,
         "api_key": _resolve_config_value_helper(
             args.api_key, "API_KEY", "api_key", file_config
@@ -1516,9 +1583,15 @@ def _parse_arguments_and_load_config():
             is_list=True,
             default_val=[],
         ),
-        "tz": file_config.get(
-            "TZ"
-        ),  # TZ usually from environment or docker, but can be in config
+        "excluded_users": _resolve_config_value_helper(
+            args.excluded_users,
+            "EXCLUDED_USERS",
+            "excluded_users",
+            file_config,
+            is_list=True,
+            default_val=[],
+        ),
+        "tz": file_config.get("TZ"),
     }
     return app_config
 
@@ -1526,19 +1599,13 @@ def _parse_arguments_and_load_config():
 if __name__ == "__main__":
     app_settings = _parse_arguments_and_load_config()
 
-    # Set globals from app_settings
     config_path_global = app_settings["config_path_val"]
     root_folder_global = app_settings["root_folder_val"]
     output_dir_global = app_settings["output_dir_val"]
 
-    # Apply TZ if set
     if app_settings.get("tz"):
         os.environ["TZ"] = app_settings["tz"]
-        # If on Unix-like systems, time.tzset() might be needed if Python version is old or TZ changed after startup.
-        # However, modern Python usually handles this well if TZ is set before datetime operations.
-        # For simplicity, assuming os.environ['TZ'] is sufficient for libraries like croniter.
 
-    # Validate root_folder_global before registering atexit
     if root_folder_global:
         try:
             validate_path(root_folder_global, "Root folder(s)")
@@ -1567,6 +1634,7 @@ if __name__ == "__main__":
             "current_chromedriver_path": app_settings["chromedriver_path"],
             "current_retry_on_yaml_failure": app_settings["retry_on_yaml_failure"],
             "current_preferred_users": app_settings["preferred_users"],
+            "current_excluded_users": app_settings["excluded_users"],
         }
         if app_settings["cron_expression"]:
             schedule_run(
@@ -1575,11 +1643,7 @@ if __name__ == "__main__":
             )
         else:
             run(**run_args_for_schedule)
-            # Explicitly call write_data_to_files if not using cron and atexit might not cover all exit paths
-            # or if we want to ensure it runs before script truly ends in non-error cases.
-            # However, atexit should handle normal exits. If run() raises an unhandled exception, atexit still runs.
-            # For now, relying on atexit for non-cron runs.
-    except SystemExit:  # Handle exit() calls gracefully
+    except SystemExit:
         logger.info("SystemExit called, script terminating.")
         raise
     except KeyboardInterrupt:
