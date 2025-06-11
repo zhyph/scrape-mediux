@@ -16,5 +16,6 @@
   "chromedriver_path": "",
   "retry_on_yaml_failure": false,
   "preferred_users": [],
-  "excluded_users": []
+  "excluded_users": [],
+  "discord_webhook_url": ""
 }

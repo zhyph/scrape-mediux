@@ -54,6 +54,7 @@ folder_bulk_data = {}
 root_folder_global = ""
 output_dir_global = None
 config_path_global = None
+discord_webhook_url_global = None
 
 yaml = YAML()
 yaml.allow_duplicate_keys = True
@@ -161,6 +162,7 @@ def load_config(config_path):
                     "username",
                     "nickname",
                     "sonarr_endpoint",
+                    "discord_webhook_url",
                 ]
                 else v
             )
@@ -945,6 +947,26 @@ def write_data_to_files():
     _copy_to_output_dir_local()
 
 
+def send_discord_notification(webhook_url, message):
+    """Sends a message to the configured Discord webhook."""
+    if not webhook_url:
+        logger.debug("Discord webhook URL not configured. Skipping notification.")
+        return
+
+    if not message:
+        logger.debug("No message content to send to Discord. Skipping notification.")
+        return
+
+    logger.info(f"Sending notification to Discord: {message[:100]}...")
+    payload = {"content": message}
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info("Discord notification sent successfully.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send Discord notification: {e}")
+
+
 # --- Helper functions for the 'run' method ---
 
 
@@ -1355,6 +1377,25 @@ def run(
         else:
             logger.info("No titles were updated.")
 
+        if updated_titles_list and discord_webhook_url_global:
+            max_titles_per_message = 15
+            num_titles = len(updated_titles_list)
+
+            for i in range(0, num_titles, max_titles_per_message):
+                chunk = updated_titles_list[i : i + max_titles_per_message]
+                message_content = "Newly processed/updated titles:\n- " + "\n- ".join(
+                    chunk
+                )
+                if (
+                    num_titles > max_titles_per_message
+                    and i + max_titles_per_message < num_titles
+                ):
+                    message_content += f"\n...and {num_titles - (i + max_titles_per_message)} more titles."
+                elif num_titles > max_titles_per_message and i == 0:
+                    message_content += f"\n(Showing first {max_titles_per_message} of {num_titles} titles)"
+
+                send_discord_notification(discord_webhook_url_global, message_content)
+
 
 def schedule_run(cron_expression, args_dict):
     logger.info(f"Scheduling script with cron expression: {cron_expression}")
@@ -1492,6 +1533,9 @@ def _parse_arguments_and_load_config():
         nargs="*",
         help="List of Mediux users to exclude for YAML data",
     )
+    parser.add_argument(
+        "--discord_webhook_url", type=str, help="Discord webhook URL for notifications"
+    )
 
     args = parser.parse_args()
 
@@ -1591,6 +1635,12 @@ def _parse_arguments_and_load_config():
             is_list=True,
             default_val=[],
         ),
+        "discord_webhook_url": _resolve_config_value_helper(
+            args.discord_webhook_url,
+            "DISCORD_WEBHOOK_URL",
+            "discord_webhook_url",
+            file_config,
+        ),
         "tz": file_config.get("TZ"),
     }
     return app_config
@@ -1602,6 +1652,7 @@ if __name__ == "__main__":
     config_path_global = app_settings["config_path_val"]
     root_folder_global = app_settings["root_folder_val"]
     output_dir_global = app_settings["output_dir_val"]
+    discord_webhook_url_global = app_settings["discord_webhook_url"]
 
     if app_settings.get("tz"):
         os.environ["TZ"] = app_settings["tz"]
