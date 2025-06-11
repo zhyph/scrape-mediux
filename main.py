@@ -8,6 +8,7 @@ import json
 import croniter
 import shutil
 import logging
+import collections.abc
 from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -50,12 +51,24 @@ CONFIG_FILE = "config.json"
 new_data = defaultdict(dict)
 cache = {}
 folder_bulk_data = {}
-root_folder = ""
-output_dir = None
-config_path = None
+root_folder_global = ""
+output_dir_global = None
+config_path_global = None
 
 yaml = YAML()
 yaml.allow_duplicate_keys = True
+
+
+def to_standard_dict(item):
+    """Recursively convert ruamel.yaml objects to standard Python dicts/lists."""
+    if isinstance(item, collections.abc.Mapping):
+        return {k: to_standard_dict(v) for k, v in item.items()}
+    elif isinstance(item, collections.abc.Sequence) and not isinstance(
+        item, (str, bytes)
+    ):
+        return [to_standard_dict(x) for x in item]
+    else:
+        return item
 
 
 def init_driver(headless=True, profile_path=None, chromedriver_path=None):
@@ -92,7 +105,11 @@ def take_screenshot(driver: WebDriver, name: str):
     if not screenshot_enabled:
         return
 
-    screenshots_dir = os.path.join(config_path, "screenshots")
+    if config_path_global is None:
+        logger.warning("Configuration path is not set. Cannot save screenshot.")
+        return
+
+    screenshots_dir = os.path.join(config_path_global, "screenshots")
     os.makedirs(screenshots_dir, exist_ok=True)
     screenshot_path = os.path.join(screenshots_dir, f"{name}.png")
     try:
@@ -498,37 +515,96 @@ def _wait_for_refresh_completion(driver, media_type, tmdb_id):
         logger.warning(f"Error while waiting for refresh spinner: {e}")
 
 
-def _find_yaml_button(driver, yaml_xpath, preferred_users):
-    """Helper function to find the YAML button, with support for preferred users."""
+def _find_yaml_button(driver, yaml_xpath, preferred_users, excluded_users=None):
+    """Helper function to find the YAML button, with support for preferred and excluded users."""
     yaml_button = None
+    all_yaml_buttons = WebDriverWait(driver, 10).until(
+        EC.presence_of_all_elements_located((By.XPATH, yaml_xpath))
+    )
+
+    if not all_yaml_buttons:
+        logger.warning("No YAML buttons found on the page.")
+        return None
+
+    if excluded_users:
+        logger.info(f"Excluding users: {', '.join(excluded_users)}")
+        filtered_buttons = []
+        for button in all_yaml_buttons:
+            try:
+                ancestor_div = button.find_element(
+                    By.XPATH,
+                    "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                )
+                user_link_element = ancestor_div.find_element(
+                    By.XPATH, ".//a[contains(@href, '/user/')]"
+                )
+                user_href = user_link_element.get_attribute("href")
+                if user_href:
+                    username_match = re.search(r"/user/([^/]+)", user_href)
+                    if username_match:
+                        username = username_match.group(1)
+                        if username.lower() not in [
+                            ex_user.lower() for ex_user in excluded_users
+                        ]:
+                            filtered_buttons.append(button)
+                        else:
+                            logger.debug(f"Excluding YAML button from user: {username}")
+                    else:
+
+                        filtered_buttons.append(button)
+                else:
+                    filtered_buttons.append(button)
+            except Exception:
+                filtered_buttons.append(button)
+        all_yaml_buttons = filtered_buttons
+        if not all_yaml_buttons:
+            logger.warning("No YAML buttons left after filtering excluded users.")
+            return None
 
     if preferred_users and len(preferred_users) > 0:
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
-        )
         logger.info(
             f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
         )
         for user in preferred_users:
-            user_xpath = f"//a[@href='/user/{user.lower()}']/button[contains(., '{user}')]/ancestor::div[contains(@class, 'flex')]//button[span[contains(text(), 'YAML')]]"
-            user_elements = driver.find_elements(By.XPATH, user_xpath)
-            if user_elements:
-                logger.info(f"Using YAML from user: {user}")
-                yaml_button = user_elements[0]
+            for button in all_yaml_buttons:
+                try:
+                    ancestor_div = button.find_element(
+                        By.XPATH,
+                        "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                    )
+                    user_link_element = ancestor_div.find_element(
+                        By.XPATH, f".//a[@href='/user/{user.lower()}']"
+                    )
+                    user_button_in_link = user_link_element.find_element(
+                        By.XPATH, f"./button[contains(., '{user}')]"
+                    )
+                    if user_button_in_link:
+                        logger.info(f"Using YAML from preferred user: {user}")
+                        yaml_button = button
+                        break
+                except Exception:
+                    continue
+            if yaml_button:
                 break
 
-    if not yaml_button:
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, yaml_xpath))
+    if not yaml_button and all_yaml_buttons:
+        yaml_button = all_yaml_buttons[0]
+        logger.debug("Using first available YAML button (after exclusions).")
+    elif not yaml_button:
+        logger.warning(
+            "No suitable YAML button found after considering preferences and exclusions."
         )
-        yaml_button = driver.find_element(By.XPATH, yaml_xpath)
-        logger.debug("Using first available YAML button")
 
     return yaml_button
 
 
 def scrape_mediux(
-    driver, tmdb_id, media_type, retry_on_yaml_failure=False, preferred_users=None
+    driver,
+    tmdb_id,
+    media_type,
+    retry_on_yaml_failure=False,
+    preferred_users=None,
+    excluded_users=None,
 ):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}")
     url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
@@ -561,7 +637,14 @@ def scrape_mediux(
 
     try:
         logger.debug(f"Looking for YAML button for {media_type} {tmdb_id}...")
-        yaml_button = _find_yaml_button(driver, yaml_xpath, preferred_users)
+        yaml_button = _find_yaml_button(
+            driver, yaml_xpath, preferred_users, excluded_users
+        )
+        if not yaml_button:
+            logger.warning(
+                f"No suitable YAML button found for TMDB ID {tmdb_id} after filtering."
+            )
+            return ""
         driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
         yaml_button.click()
         logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
@@ -570,9 +653,17 @@ def scrape_mediux(
             EC.presence_of_element_located((By.XPATH, "//code"))
         )
         WebDriverWait(driver, 20).until(
-            lambda d: yaml_element.get_attribute("innerText").strip() != ""
+            lambda d: yaml_element.get_attribute("innerText").strip() != ""  # type: ignore
         )
         yaml_data = yaml_element.get_attribute("innerText")
+
+        if yaml_data is None:
+            logger.warning(
+                f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
+                "This might indicate an issue with the page or element structure. Returning empty."
+            )
+            return ""
+
         yaml_len = len(yaml_data)
         logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
         return yaml_data
@@ -594,6 +685,7 @@ def scrape_mediux(
                 media_type,
                 retry_on_yaml_failure=False,
                 preferred_users=preferred_users,
+                excluded_users=excluded_users,
             )
 
         take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
@@ -740,257 +832,531 @@ def _collect_existing_urls():
     """Helper function to collect existing URLs from kometa files."""
     existing_urls = set()
 
-    root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
-    folder_cache = {root: os.listdir(root) for root in root_folders}
+    root_folders_list = (
+        root_folder_global
+        if isinstance(root_folder_global, list)
+        else [root_folder_global]
+    )
+    folder_cache = {root: os.listdir(root) for root in root_folders_list}
 
-    for root, folders in folder_cache.items():
-        for folder in folders:
-            folder_path = os.path.join(root, folder)
+    for root, folders_in_root in folder_cache.items():
+        for folder_item in folders_in_root:
+            folder_path = os.path.join(root, folder_item)
             if os.path.isdir(folder_path):
-                file_path = f"./out/kometa/{folder}_data.yml"
+                file_path = f"./out/kometa/{folder_item}_data.yml"
                 existing_urls.update(load_bulk_data(file_path, True))
 
     return existing_urls
 
 
-def _update_data_file(folder, data, existing_urls):
+def _update_data_file(folder_name, data_to_write, existing_urls_set):
     """Helper function to update a single data file."""
-    file_name = f"./out/kometa/{folder}_data.yml"
+    file_name = f"./out/kometa/{folder_name}_data.yml"
     total_urls = 0
 
+    current_file_data = {"metadata": {}}
     if os.path.exists(file_name):
         with open(file_name, "r", encoding="utf-8") as f:
-            existing_data = yaml.load(f)
-            if not existing_data:
-                existing_data = {"metadata": {}}
-    else:
-        existing_data = {"metadata": {}}
+            loaded_data = yaml.load(f)
+            if loaded_data and "metadata" in loaded_data:
+                current_file_data = loaded_data
+            elif loaded_data:
+                current_file_data["metadata"] = loaded_data
 
-    for _, yaml_data in data.items():
-        existing_data["metadata"].update(yaml.load(yaml_data))
-        urls = extract_set_urls(yaml_data)
-        existing_urls.update(urls)
-        total_urls += len(urls)
+    for _, item_yaml_data in data_to_write.items():
+        parsed_item_yaml = yaml.load(item_yaml_data)
+        if parsed_item_yaml:
+            current_file_data["metadata"].update(parsed_item_yaml)
+        item_urls = extract_set_urls(item_yaml_data)
+        existing_urls_set.update(item_urls)
+        total_urls += len(item_urls)
 
     with open(file_name, "w", encoding="utf-8") as f:
-        yaml.dump(existing_data, f)
+        yaml.dump(current_file_data, f)
 
     return file_name, total_urls
 
 
-def _copy_to_output_dir():
+def _copy_to_output_dir_local():
     """Helper function to copy files to output directory if specified."""
-    if not output_dir:
+    if not output_dir_global:
         return
 
-    logger.info(f"Copying files to {output_dir}...")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        logger.debug(f"Created output directory {output_dir}.")
+    logger.info(f"Copying files to {output_dir_global}...")
+    if not os.path.exists(output_dir_global):
+        os.makedirs(output_dir_global)
+        logger.debug(f"Created output directory {output_dir_global}.")
 
-    for filename in os.listdir("./out/kometa"):
-        src_file = os.path.join("./out/kometa", filename)
-        dst_file = os.path.join(output_dir, filename)
+    kometa_out_dir = "./out/kometa"
+    if not os.path.exists(kometa_out_dir):
+        logger.warning(
+            f"Source directory {kometa_out_dir} does not exist. Nothing to copy."
+        )
+        return
+
+    for filename in os.listdir(kometa_out_dir):
+        src_file = os.path.join(kometa_out_dir, filename)
+        dst_file = os.path.join(output_dir_global, filename)
         shutil.copy2(src_file, dst_file)
-    logger.info(f"Files copied to {output_dir}.")
+    logger.info(f"Files copied to {output_dir_global}.")
 
 
 def write_data_to_files():
     """Main function to write scraped data to files."""
-    global new_data, folder_bulk_data, output_dir
+    global new_data, cache, root_folder_global
 
-    validate_path(path=root_folder, description="Root folder")
+    if not root_folder_global:
+        logger.error("Root folder is not set. Cannot write data.")
+        return
+
+    validate_path(path=root_folder_global, description="Root folder")
     logger.info("Writing data to files...")
 
     os.makedirs("./out/kometa", exist_ok=True)
-    logger.debug("Created output directory './out/kometa'.")
+    logger.debug("Ensured output directory './out/kometa' exists.")
 
-    # Collect existing URLs
     existing_urls = _collect_existing_urls()
 
-    # Update data files
-    updated_files = []
-    total_urls_extracted = 0
+    updated_files_list = []
 
-    for folder, data in new_data.items():
-        file_name, urls_count = _update_data_file(
-            folder=folder, data=data, existing_urls=existing_urls
+    for folder_name, data_for_folder in new_data.items():
+        file_name_str, _ = _update_data_file(
+            folder_name=folder_name,
+            data_to_write=data_for_folder,
+            existing_urls_set=existing_urls,
         )
-        updated_files.append(file_name)
-        total_urls_extracted += urls_count
+        updated_files_list.append(file_name_str)
 
-    # Log results
-    logger.info(f"Updated {len(updated_files)} files: {', '.join(updated_files)}")
-    logger.info(f"Extracted a total of {total_urls_extracted} unique set URLs.")
+    if updated_files_list:
+        logger.info(
+            f"Updated {len(updated_files_list)} files: {', '.join(updated_files_list)}"
+        )
+    else:
+        logger.info("No data files were updated.")
+    logger.info(f"Collected a total of {len(existing_urls)} unique set URLs.")
 
-    # Write set URLs to bulk file
     with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
-        for url in sorted(existing_urls):
+        for url in sorted(list(existing_urls)):
             f.write(url + "\n")
     logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
 
     save_cache(updated_cache=cache, cache_file=CACHE_FILE)
     logger.info("Data writing completed.")
-
-    # Copy to output directory if specified
-    _copy_to_output_dir()
+    _copy_to_output_dir_local()
 
 
-def run(
-    api_key,
-    username,
-    password,
-    profile_path,
-    nickname,
+# --- Helper functions for the 'run' method ---
+
+
+def _fetch_tv_series_details(
+    media_name,
     sonarr_api_key,
     sonarr_endpoint,
-    selected_folders=None,
-    headless=True,
-    process_all=False,
-    chromedriver_path=None,
-    retry_on_yaml_failure=False,
-    preferred_users=None,
+    tmdb_id,
+    external_source_id,
+    external_source_type,
+    logger,
 ):
-    global cache, new_data, folder_bulk_data, root_folder
+    """Fetches TVDB ID and ended status for a TV series."""
+    tvdb_id, ended = None, None
+    try:
+        tvdb_id, ended = check_series_status(
+            media_name=media_name,
+            sonarr_api_key=sonarr_api_key,
+            sonarr_endpoint=sonarr_endpoint,
+        )
+        if not tvdb_id and external_source_type == "tvdb_id":
+            tvdb_id = int(external_source_id)
+            logger.info(
+                f"Using TVDB ID {tvdb_id} from folder name for '{media_name}' as Sonarr lookup failed."
+            )
+        elif not tvdb_id:
+            logger.warning(
+                f"Could not determine TVDB ID for TV show '{media_name}' (TMDB: {tmdb_id}) via Sonarr."
+            )
+    except Exception as e:
+        logger.error(
+            f"Failed to check series status for '{media_name}' (TMDB: {tmdb_id}): {e}"
+        )
+    return tvdb_id, ended
+
+
+def _get_existing_yaml_details(
+    media_id_from_folder,
+    media_type,
+    tmdb_id,
+    tvdb_id_for_tv,
+    folder_map,
+    current_folder_bulk_data,
+    logger,
+):
+    """Determines existing YAML content and its key."""
+    old_parsed_yaml_content = None
+    is_already_in_yaml = False
+    key_for_existing_yaml_log = None
+
+    if media_type == "tv":
+        key_for_existing_yaml_log = tvdb_id_for_tv
+    elif media_type == "movie":
+        key_for_existing_yaml_log = tmdb_id
+
+    if key_for_existing_yaml_log:
+        for f_name_map in folder_map.get(media_id_from_folder, []):
+            f_bulk_data = current_folder_bulk_data.get(f_name_map, {})
+            metadata = f_bulk_data.get("metadata", {})
+
+            content_found = False
+            if key_for_existing_yaml_log in metadata:
+                old_parsed_yaml_content = metadata[key_for_existing_yaml_log]
+                content_found = True
+            elif str(key_for_existing_yaml_log) in metadata:
+                old_parsed_yaml_content = metadata[str(key_for_existing_yaml_log)]
+                content_found = True
+
+            if content_found:
+                is_already_in_yaml = True
+                logger.debug(
+                    f"Found existing YAML for {media_type} ID {key_for_existing_yaml_log} in folder {f_name_map}"
+                )
+                break
+    return old_parsed_yaml_content, is_already_in_yaml, key_for_existing_yaml_log
+
+
+def _should_skip_scraping(
+    media_name,
+    media_type,
+    tmdb_id,
+    key_for_log,
+    ended_status,
+    is_in_yaml,
+    process_all_flag,
+    logger,
+):
+    """Determines if scraping should be skipped for an item."""
+    if is_in_yaml and not process_all_flag:
+        if media_type == "tv":
+            if ended_status:
+                logger.info(
+                    f"Skipping ended TV show '{media_name}' (ID: {key_for_log}, TMDB: {tmdb_id}) as it's in YAML and not processing all."
+                )
+                return True
+            else:
+                logger.info(
+                    f"Ongoing TV show '{media_name}' (ID: {key_for_log}, TMDB: {tmdb_id}) is in YAML. Will re-scrape for comparison."
+                )
+        elif media_type == "movie":
+            logger.info(
+                f"Skipping movie '{media_name}' (TMDB: {key_for_log}) as it's in YAML and not processing all."
+            )
+            return True
+    return False
+
+
+def _extract_comparable_content_from_scraped_yaml(
+    raw_yaml_data, media_name, media_type, tmdb_id, tvdb_id_for_tv, yaml_parser, logger
+):
+    """Parses newly scraped YAML and extracts the content for comparison."""
+    if not raw_yaml_data:
+        return None
+    try:
+        parsed_wrapper = yaml_parser.load(raw_yaml_data)
+        if not parsed_wrapper or not isinstance(parsed_wrapper, dict):
+            logger.error(
+                f"Parsed new YAML for '{media_name}' (TMDB: {tmdb_id}) is not a valid dictionary or is empty."
+            )
+            return None
+
+        expected_key = tvdb_id_for_tv if media_type == "tv" else tmdb_id
+
+        actual_key_found = None
+        if expected_key:
+            if expected_key in parsed_wrapper:
+                actual_key_found = expected_key
+            elif str(expected_key) in parsed_wrapper:
+                actual_key_found = str(expected_key)
+
+        if actual_key_found:
+            return parsed_wrapper[actual_key_found]
+        elif len(parsed_wrapper) == 1:
+
+            first_key = list(parsed_wrapper.keys())[0]
+            logger.warning(
+                f"Scraped YAML for '{media_name}' (TMDB: {tmdb_id}) was keyed by '{first_key}' instead of expected '{expected_key}'. Using content from '{first_key}'."
+            )
+            return parsed_wrapper[first_key]
+        else:
+            logger.error(
+                f"Could not find expected key '{expected_key}' or a single key in newly parsed YAML for '{media_name}': {list(parsed_wrapper.keys())}"
+            )
+            return None
+    except Exception as e:
+        logger.error(
+            f"Failed to parse or process newly scraped YAML for '{media_name}' (TMDB: {tmdb_id}): {e}"
+        )
+        return None
+
+
+def _compare_yaml_and_log_changes(
+    media_name, media_type, id_for_logging, old_content, new_content_to_compare, logger
+):
+    """Compares old and new YAML content and logs the result."""
+    if new_content_to_compare is None:
+        logger.warning(
+            f"No new YAML content to compare for '{media_name}' (ID: {id_for_logging})."
+        )
+        return False
+
+    std_new_content = to_standard_dict(new_content_to_compare)
+    id_type_str = "TVDB" if media_type == "tv" else "TMDB"
+
+    if old_content is None:
+        logger.info(
+            f"New {media_type} entry for '{media_name}' ({id_type_str}: {id_for_logging}). Adding to updated titles."
+        )
+        return True
+
+    std_old_content = to_standard_dict(old_content)
+    if std_new_content != std_old_content:
+        logger.info(
+            f"YAML data for {media_type} '{media_name}' ({id_type_str}: {id_for_logging}) has changed."
+        )
+        return True
+    else:
+        logger.info(
+            f"YAML data for {media_type} '{media_name}' ({id_type_str}: {id_for_logging}) is unchanged."
+        )
+        return False
+
+
+# --- Helper function for processing a single media item ---
+def _process_single_media_item(
+    media_id_from_folder,
+    media_name,
+    external_source_type,
+    driver,
+    current_api_key,
+    current_sonarr_api_key,
+    current_sonarr_endpoint,
+    current_process_all,
+    current_retry_on_yaml_failure,
+    current_preferred_users,
+    current_excluded_users,
+    folder_map_for_media,
+    updated_titles_list,
+):
+    global cache, new_data, folder_bulk_data, yaml
+
+    try:
+        tmdb_id, media_type = fetch_tmdb_id(
+            media_id=media_id_from_folder,
+            external_source=external_source_type,
+            api_key=current_api_key,
+            cache=cache,
+            media_name=media_name,
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
+        )
+        return
+
+    if not tmdb_id:
+        logger.debug(
+            f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
+        )
+        return
+
+    tvdb_id_for_tv, ended_status = None, None
+    if media_type == "tv":
+        tvdb_id_for_tv, ended_status = _fetch_tv_series_details(
+            media_name,
+            current_sonarr_api_key,
+            current_sonarr_endpoint,
+            tmdb_id,
+            media_id_from_folder,
+            external_source_type,
+            logger,
+        )
+
+    old_yaml_content, is_in_yaml, key_for_log = _get_existing_yaml_details(
+        media_id_from_folder,
+        media_type,
+        tmdb_id,
+        tvdb_id_for_tv,
+        folder_map_for_media,
+        folder_bulk_data,
+        logger,
+    )
+
+    if _should_skip_scraping(
+        media_name,
+        media_type,
+        tmdb_id,
+        key_for_log,
+        ended_status,
+        is_in_yaml,
+        current_process_all,
+        logger,
+    ):
+        return
+
+    logger.info(
+        f"Processing Media: '{media_name}' (Source ID: {media_id_from_folder}, TMDB ID: {tmdb_id}, TVDB ID: {tvdb_id_for_tv if tvdb_id_for_tv else 'N/A'}, Type: {media_type})"
+    )
+
+    new_raw_yaml = scrape_mediux(
+        driver=driver,
+        tmdb_id=tmdb_id,
+        media_type=media_type,
+        retry_on_yaml_failure=current_retry_on_yaml_failure,
+        preferred_users=current_preferred_users,
+        excluded_users=current_excluded_users,
+    )
+    if not new_raw_yaml:
+        logger.warning(
+            f"No YAML data found from Mediux for '{media_name}' (TMDB ID {tmdb_id})."
+        )
+        return
+
+    new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+        new_raw_yaml,
+        media_name,
+        media_type,
+        tmdb_id,
+        tvdb_id_for_tv,
+        yaml,
+        logger,
+    )
+
+    id_for_comp_log = (
+        tvdb_id_for_tv if media_type == "tv" and tvdb_id_for_tv else tmdb_id
+    )
+
+    title_should_be_updated_flag = _compare_yaml_and_log_changes(
+        media_name,
+        media_type,
+        id_for_comp_log,
+        old_yaml_content,
+        new_comparable_content,
+        logger,
+    )
+
+    if title_should_be_updated_flag:
+        log_id_str = (
+            f"TVDB: {tvdb_id_for_tv}"
+            if media_type == "tv" and tvdb_id_for_tv
+            else f"TMDB: {tmdb_id}"
+        )
+        updated_titles_list.append(f"{media_name} ({log_id_str})")
+
+    for folder_name in folder_map_for_media.get(media_id_from_folder, []):
+        new_data[folder_name][tmdb_id] = new_raw_yaml
+
+
+# --- Main 'run' function ---
+def run(
+    current_api_key,
+    current_username,
+    current_password,
+    current_profile_path,
+    current_nickname,
+    current_sonarr_api_key,
+    current_sonarr_endpoint,
+    current_selected_folders=None,
+    current_headless=True,
+    current_process_all=False,
+    current_chromedriver_path=None,
+    current_retry_on_yaml_failure=False,
+    current_preferred_users=None,
+    current_excluded_users=None,
+):
+    global cache, new_data, folder_bulk_data, root_folder_global
     logger.info("Starting Mediux scraper...")
 
-    if preferred_users and len(preferred_users) > 0:
-        logger.info(f"Preferred users configured: {', '.join(preferred_users)}")
+    if current_preferred_users:
+        logger.info(f"Preferred users configured: {', '.join(current_preferred_users)}")
+    if current_excluded_users:
+        logger.info(f"Excluded users configured: {', '.join(current_excluded_users)}")
 
-    validate_path(path=root_folder, description="Root folder")
-    logger.info(f"Processing media from: {root_folder}")
+    validate_path(path=root_folder_global, description="Root folder")
+    logger.info(f"Processing media from: {root_folder_global}")
 
     cache = load_cache(cache_file=CACHE_FILE)
 
-    root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
-    folder_cache = {root: os.listdir(root) for root in root_folders}
+    root_folders_list = (
+        root_folder_global
+        if isinstance(root_folder_global, list)
+        else [root_folder_global]
+    )
+    per_folder_cache = {
+        root_path: os.listdir(root_path) for root_path in root_folders_list
+    }
 
-    folder_bulk_data = {}
-    for root, folders in folder_cache.items():
-        folder_bulk_data.update(
-            {
-                folder: load_bulk_data(
-                    bulk_data_file=f"./out/kometa/{folder}_data.yml",
-                    only_set_urls=False,
+    folder_bulk_data.clear()
+    for root_path_item, folders_in_root in per_folder_cache.items():
+        for folder_item in folders_in_root:
+            if os.path.isdir(os.path.join(root_path_item, folder_item)):
+                folder_bulk_data[folder_item] = load_bulk_data(
+                    bulk_data_file=f"./out/kometa/{folder_item}_data.yml"
                 )
-                for folder in folders
-                if os.path.isdir(os.path.join(root, folder))
-            }
-        )
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
-    media_ids, folder_map = get_media_ids(
-        root_folder=root_folder, selected_folders=selected_folders
+    media_ids_to_process, folder_map_for_media = get_media_ids(
+        root_folder=root_folder_global, selected_folders=current_selected_folders
     )
-    logger.info(f"Media IDs to process: {len(media_ids)}")
+    logger.info(f"Media IDs to process: {len(media_ids_to_process)}")
 
     driver = init_driver(
-        headless=headless,
-        profile_path=profile_path,
-        chromedriver_path=chromedriver_path,
+        headless=current_headless,
+        profile_path=current_profile_path,
+        chromedriver_path=current_chromedriver_path,
     )
 
-    updated_titles = []
+    updated_titles_list = []
+    new_data.clear()
 
     try:
         login_mediux(
-            driver=driver, username=username, password=password, nickname=nickname
+            driver=driver,
+            username=current_username,
+            password=current_password,
+            nickname=current_nickname,
         )
 
         with logging_redirect_tqdm():
-            for media_id, media_name, external_source in tqdm(
-                media_ids, desc="Processing media IDs"
+            for media_id_from_folder, media_name, external_source_type in tqdm(
+                media_ids_to_process, desc="Processing media IDs"
             ):
-                already_processed = False
-                try:
-                    tmdb_id, media_type = fetch_tmdb_id(
-                        media_id=media_id,
-                        external_source=external_source,
-                        api_key=api_key,
-                        cache=cache,
-                        media_name=media_name,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to fetch TMDB ID for {external_source} {media_id}: {e}"
-                    )
-                    continue
-
-                if media_type == "tv":
-                    try:
-                        tvdb_id, ended = check_series_status(
-                            media_name=media_name,
-                            sonarr_api_key=sonarr_api_key,
-                            sonarr_endpoint=sonarr_endpoint,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to check series status for {media_name}: {e}"
-                        )
-                        continue
-
-                for folder in folder_map[media_id]:
-                    curr_bulk_data = folder_bulk_data.get(folder, {"metadata": {}})
-
-                    if (
-                        media_type == "tv"
-                        and tvdb_id is not None
-                        and tvdb_id in curr_bulk_data.get("metadata", {})
-                        and not process_all
-                    ):
-                        if not ended:
-                            logger.info(
-                                f"Series with TVDB ID {tvdb_id} is ongoing. Updating entry."
-                            )
-                            del curr_bulk_data["metadata"][tvdb_id]
-                        else:
-                            already_processed = True
-                            logger.info(
-                                f"Series with TVDB ID {tvdb_id} has ended and already exists in YAML. Skipping entry."
-                            )
-
-                    if tmdb_id in curr_bulk_data["metadata"] and not process_all:
-                        already_processed = True
-                        logger.info(
-                            f"Skipping TMDB ID {tmdb_id} as it is already in ./out/kometa/{folder}_data.yml"
-                        )
-
-                if already_processed:
-                    continue
-
-                logger.info(
-                    f"Processing Media ID: {media_id}, TMDB ID: {tmdb_id}, Media Type: {media_type}"
+                _process_single_media_item(
+                    media_id_from_folder,
+                    media_name,
+                    external_source_type,
+                    driver,
+                    current_api_key,
+                    current_sonarr_api_key,
+                    current_sonarr_endpoint,
+                    current_process_all,
+                    current_retry_on_yaml_failure,
+                    current_preferred_users,
+                    current_excluded_users,
+                    folder_map_for_media,
+                    updated_titles_list,
                 )
-                if tmdb_id:
-                    yaml_data = scrape_mediux(
-                        driver=driver,
-                        tmdb_id=tmdb_id,
-                        media_type=media_type,
-                        retry_on_yaml_failure=retry_on_yaml_failure,
-                        preferred_users=preferred_users,
-                    )
-                    if not yaml_data:
-                        logger.warning(f"No YAML data found for TMDB ID {tmdb_id}.")
-                        continue
-
-                    for folder in folder_map[media_id]:
-                        new_data[folder][tmdb_id] = yaml_data
-
-                    updated_titles.append(media_name)
     finally:
         logger.info("Quitting WebDriver...")
-        driver.quit()
+        if "driver" in locals() and driver:
+            driver.quit()
         logger.info("Script finished.")
 
-        if updated_titles:
+        if updated_titles_list:
             logger.info("Updated Titles:")
-            for title in updated_titles:
+            for title in updated_titles_list:
                 logger.info(f"- {title}")
         else:
             logger.info("No titles were updated.")
 
 
-def schedule_run(cron_expression):
+def schedule_run(cron_expression, args_dict):
     logger.info(f"Scheduling script with cron expression: {cron_expression}")
     base_time = datetime.now()
     logger.info(f"Current time: {base_time}")
@@ -998,38 +1364,74 @@ def schedule_run(cron_expression):
         f"Environment Timezone: {os.environ.get('TZ', 'None is set, use the env from the docker compose or docker run to provide your TZ')}"
     )
     cron_iter = croniter.croniter(cron_expression, base_time)
-    next_run = cron_iter.get_next(datetime)
-    logger.info(f"Next scheduled run at: {next_run}")
+    next_run_time = cron_iter.get_next(datetime)
+    logger.info(f"Next scheduled run at: {next_run_time}")
 
     while True:
         now = datetime.now()
-        if now >= next_run:
+        if now >= next_run_time:
             logger.info("Scheduled run started...")
             try:
                 run(
-                    api_key=api_key,
-                    username=username,
-                    password=password,
-                    profile_path=profile_path,
-                    nickname=nickname,
-                    sonarr_api_key=sonarr_api_key,
-                    sonarr_endpoint=sonarr_endpoint,
-                    selected_folders=selected_folders,
-                    headless=headless,
-                    process_all=process_all,
-                    chromedriver_path=chromedriver_path,
-                    retry_on_yaml_failure=retry_on_yaml_failure,
-                    preferred_users=preferred_users,
+                    current_api_key=args_dict["api_key"],
+                    current_username=args_dict["username"],
+                    current_password=args_dict["password"],
+                    current_profile_path=args_dict["profile_path"],
+                    current_nickname=args_dict["nickname"],
+                    current_sonarr_api_key=args_dict["sonarr_api_key"],
+                    current_sonarr_endpoint=args_dict["sonarr_endpoint"],
+                    current_selected_folders=args_dict["selected_folders"],
+                    current_headless=args_dict["headless"],
+                    current_process_all=args_dict["process_all"],
+                    current_chromedriver_path=args_dict["chromedriver_path"],
+                    current_retry_on_yaml_failure=args_dict["retry_on_yaml_failure"],
+                    current_preferred_users=args_dict["preferred_users"],
+                    current_excluded_users=args_dict["excluded_users"],
                 )
                 write_data_to_files()
             except Exception as e:
                 logger.error(f"Error during scheduled run: {e}")
-            next_run = cron_iter.get_next(datetime)
-            logger.info(f"Next scheduled run at: {next_run}")
+            next_run_time = cron_iter.get_next(datetime)
+            logger.info(f"Next scheduled run at: {next_run_time}")
         sleep(60)
 
 
-if __name__ == "__main__":
+# --- Configuration and Argument Parsing ---
+
+
+def _resolve_config_value_helper(
+    arg_val,
+    env_var_name,
+    conf_key,
+    current_file_config,
+    default_val=None,
+    is_bool=False,
+    is_list=False,
+):
+    """Helper to get value: command-line arg > environment variable > config file > default."""
+    if arg_val is not None:
+        if is_bool:
+
+            return bool(arg_val)
+        return arg_val
+
+    env_val = os.environ.get(env_var_name)
+    if env_val is not None:
+        if is_bool:
+            return env_val.lower() in ["true", "1", "yes"]
+        if is_list:
+            return [item.strip() for item in env_val.split(",")] if env_val else []
+        return env_val
+
+    file_val = current_file_config.get(conf_key)
+    if file_val is not None:
+
+        return file_val
+
+    return default_val
+
+
+def _parse_arguments_and_load_config():
     parser = argparse.ArgumentParser(
         description="Scrape Mediux and create bulk data file."
     )
@@ -1042,154 +1444,210 @@ if __name__ == "__main__":
     parser.add_argument(
         "--root_folder",
         type=str,
-        help="Root folder containing subfolders with IMDb IDs",
+        help="Root folder(s) containing subfolders with media IDs. Can be a single path or multiple paths separated by commas.",
     )
     parser.add_argument("--api_key", type=str, help="TMDB API key")
     parser.add_argument("--username", type=str, help="Mediux username")
     parser.add_argument("--password", type=str, help="Mediux password")
     parser.add_argument("--nickname", type=str, help="Mediux nickname")
-    parser.add_argument(
-        "--profile_path",
-        type=str,
-        help="Path to Chrome user profile",
-    )
+    parser.add_argument("--profile_path", type=str, help="Path to Chrome user profile")
     parser.add_argument("--sonarr_api_key", type=str, help="Sonarr API key")
     parser.add_argument("--sonarr_endpoint", type=str, help="Sonarr API endpoint")
     parser.add_argument(
         "--folders",
         nargs="*",
-        help="Specific folders to search for IMDb IDs (optional)",
+        help="Specific sub-folders within root_folder(s) to process (optional)",
     )
     parser.add_argument(
         "--headless",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         help="Run Selenium in headless mode",
-        default=None,
     )
     parser.add_argument(
-        "--cron",
-        type=str,
-        help="Cron expression for scheduling the script",
+        "--cron", type=str, help="Cron expression for scheduling the script"
     )
     parser.add_argument(
-        "--output_dir",
-        type=str,
-        help="Directory to copy the output files to",
+        "--output_dir", type=str, help="Directory to copy the output files to"
     )
     parser.add_argument(
         "--process_all",
         action=argparse.BooleanOptionalAction,
-        help="Process all items regardless of whether they have been processed before",
+        help="Process all items regardless of existing data",
     )
     parser.add_argument(
-        "--chromedriver_path",
-        type=str,
-        help="Path to the ChromeDriver executable",
+        "--chromedriver_path", type=str, help="Path to the ChromeDriver executable"
     )
     parser.add_argument(
         "--retry_on_yaml_failure",
-        action="store_true",
-        help="Retry by reloading the page if YAML button exists but an error occurs",
-        default=None,
+        action=argparse.BooleanOptionalAction,
+        help="Retry scraping if YAML extraction fails initially",
     )
     parser.add_argument(
         "--preferred_users",
         nargs="*",
-        help="List of preferred Mediux users to prioritize when fetching YAML data",
+        help="List of preferred Mediux users for YAML data",
+    )
+    parser.add_argument(
+        "--excluded_users",
+        nargs="*",
+        help="List of Mediux users to exclude for YAML data",
     )
 
     args = parser.parse_args()
 
-    config = load_config(args.config_path)
+    file_config = load_config(args.config_path)
 
-    config_path = args.config_path
+    root_folder_val = _resolve_config_value_helper(
+        args.root_folder, "ROOT_FOLDER", "root_folder", file_config
+    )
+    if isinstance(root_folder_val, str):
+        root_folder_val = [
+            rf.strip() for rf in root_folder_val.split(",") if rf.strip()
+        ]
+    elif root_folder_val is None:
+        root_folder_val = []
 
-    if "TZ" in config:
-        os.environ["TZ"] = config["TZ"]
+    app_config = {
+        "config_path_val": args.config_path,
+        "root_folder_val": root_folder_val,
+        "api_key": _resolve_config_value_helper(
+            args.api_key, "API_KEY", "api_key", file_config
+        ),
+        "username": _resolve_config_value_helper(
+            args.username, "USERNAME", "username", file_config
+        ),
+        "password": _resolve_config_value_helper(
+            args.password, "PASSWORD", "password", file_config
+        ),
+        "nickname": _resolve_config_value_helper(
+            args.nickname, "NICKNAME", "nickname", file_config
+        ),
+        "profile_path": _resolve_config_value_helper(
+            args.profile_path, "PROFILE_PATH", "profile_path", file_config, "/profile"
+        ),
+        "sonarr_api_key": _resolve_config_value_helper(
+            args.sonarr_api_key, "SONARR_API_KEY", "sonarr_api_key", file_config
+        ),
+        "sonarr_endpoint": _resolve_config_value_helper(
+            args.sonarr_endpoint, "SONARR_ENDPOINT", "sonarr_endpoint", file_config
+        ),
+        "selected_folders": _resolve_config_value_helper(
+            args.folders,
+            "FOLDERS",
+            "folders",
+            file_config,
+            default_val=[],
+            is_list=True,
+        ),
+        "headless": _resolve_config_value_helper(
+            args.headless,
+            "HEADLESS",
+            "headless",
+            file_config,
+            default_val=True,
+            is_bool=True,
+        ),
+        "cron_expression": _resolve_config_value_helper(
+            args.cron, "CRON_EXPRESSION", "cron", file_config
+        ),
+        "output_dir_val": _resolve_config_value_helper(
+            args.output_dir, "OUTPUT_DIR", "output_dir", file_config
+        ),
+        "process_all": _resolve_config_value_helper(
+            args.process_all,
+            "PROCESS_ALL",
+            "process_all",
+            file_config,
+            default_val=False,
+            is_bool=True,
+        ),
+        "chromedriver_path": _resolve_config_value_helper(
+            args.chromedriver_path,
+            "CHROMEDRIVER_PATH",
+            "chromedriver_path",
+            file_config,
+        ),
+        "retry_on_yaml_failure": _resolve_config_value_helper(
+            args.retry_on_yaml_failure,
+            "RETRY_ON_YAML_FAILURE",
+            "retry_on_yaml_failure",
+            file_config,
+            default_val=False,
+            is_bool=True,
+        ),
+        "preferred_users": _resolve_config_value_helper(
+            args.preferred_users,
+            "PREFERRED_USERS",
+            "preferred_users",
+            file_config,
+            is_list=True,
+            default_val=[],
+        ),
+        "excluded_users": _resolve_config_value_helper(
+            args.excluded_users,
+            "EXCLUDED_USERS",
+            "excluded_users",
+            file_config,
+            is_list=True,
+            default_val=[],
+        ),
+        "tz": file_config.get("TZ"),
+    }
+    return app_config
 
-    root_folder = (
-        args.root_folder if args.root_folder is not None else config.get("root_folder")
-    )
-    api_key = args.api_key if args.api_key is not None else config.get("api_key")
-    username = args.username if args.username is not None else config.get("username")
-    password = args.password if args.password is not None else config.get("password")
-    nickname = args.nickname if args.nickname is not None else config.get("nickname")
-    profile_path = (
-        args.profile_path
-        if args.profile_path is not None
-        else config.get("profile_path", "/profile")
-    )
-    sonarr_api_key = (
-        args.sonarr_api_key
-        if args.sonarr_api_key is not None
-        else config.get("sonarr_api_key")
-    )
-    sonarr_endpoint = (
-        args.sonarr_endpoint
-        if args.sonarr_endpoint is not None
-        else config.get("sonarr_endpoint")
-    )
-    selected_folders = (
-        args.folders if args.folders is not None else config.get("folders")
-    )
-    headless = (
-        args.headless if args.headless is not None else config.get("headless", True)
-    )
-    cron_expression = args.cron if args.cron is not None else config.get("cron")
-    output_dir = (
-        args.output_dir if args.output_dir is not None else config.get("output_dir")
-    )
-    process_all = (
-        args.process_all
-        if args.process_all is not None
-        else config.get("process_all", False)
-    )
-    chromedriver_path = (
-        args.chromedriver_path
-        if args.chromedriver_path is not None
-        else config.get("chromedriver_path")
-    )
-    retry_on_yaml_failure = (
-        args.retry_on_yaml_failure
-        if args.retry_on_yaml_failure is not None
-        else config.get("retry_on_yaml_failure", False)
-    )
-    preferred_users = (
-        args.preferred_users
-        if args.preferred_users is not None
-        else config.get("preferred_users")
-    )
 
-    if root_folder:
+if __name__ == "__main__":
+    app_settings = _parse_arguments_and_load_config()
+
+    config_path_global = app_settings["config_path_val"]
+    root_folder_global = app_settings["root_folder_val"]
+    output_dir_global = app_settings["output_dir_val"]
+
+    if app_settings.get("tz"):
+        os.environ["TZ"] = app_settings["tz"]
+
+    if root_folder_global:
         try:
-            validate_path(root_folder, "Root folder")
+            validate_path(root_folder_global, "Root folder(s)")
             atexit.register(write_data_to_files)
         except Exception as e:
-            logger.error(f"Error during validation of root folder: {e}")
+            logger.error(
+                f"Error during validation of root folder: {e}. `write_data_to_files` will not be registered with atexit."
+            )
     else:
         logger.warning(
-            "Root folder is not set. Skipping atexit registration for write_data_to_files."
+            "Root folder is not set. `write_data_to_files` will not be registered with atexit."
         )
 
     try:
-        if cron_expression:
-            schedule_run(cron_expression=cron_expression)
-        else:
-            run(
-                api_key=api_key,
-                username=username,
-                password=password,
-                profile_path=profile_path,
-                nickname=nickname,
-                sonarr_api_key=sonarr_api_key,
-                sonarr_endpoint=sonarr_endpoint,
-                selected_folders=selected_folders,
-                headless=headless,
-                process_all=process_all,
-                chromedriver_path=chromedriver_path,
-                retry_on_yaml_failure=retry_on_yaml_failure,
-                preferred_users=preferred_users,
+        run_args_for_schedule = {
+            "current_api_key": app_settings["api_key"],
+            "current_username": app_settings["username"],
+            "current_password": app_settings["password"],
+            "current_profile_path": app_settings["profile_path"],
+            "current_nickname": app_settings["nickname"],
+            "current_sonarr_api_key": app_settings["sonarr_api_key"],
+            "current_sonarr_endpoint": app_settings["sonarr_endpoint"],
+            "current_selected_folders": app_settings["selected_folders"],
+            "current_headless": app_settings["headless"],
+            "current_process_all": app_settings["process_all"],
+            "current_chromedriver_path": app_settings["chromedriver_path"],
+            "current_retry_on_yaml_failure": app_settings["retry_on_yaml_failure"],
+            "current_preferred_users": app_settings["preferred_users"],
+            "current_excluded_users": app_settings["excluded_users"],
+        }
+        if app_settings["cron_expression"]:
+            schedule_run(
+                cron_expression=app_settings["cron_expression"],
+                args_dict=run_args_for_schedule,
             )
+        else:
+            run(**run_args_for_schedule)
+    except SystemExit:
+        logger.info("SystemExit called, script terminating.")
+        raise
+    except KeyboardInterrupt:
+        logger.info("Script interrupted by user (KeyboardInterrupt).")
     except Exception as e:
-        logger.error(f"Unhandled error: {e}")
+        logger.error(f"Unhandled error in __main__: {e}", exc_info=True)
         exit(1)
