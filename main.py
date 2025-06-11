@@ -853,16 +853,14 @@ def write_data_to_files():
     existing_urls = _collect_existing_urls()
 
     updated_files_list = []
-    total_urls_extracted_count = 0
 
     for folder_name, data_for_folder in new_data.items():
-        file_name, urls_count = _update_data_file(
+        file_name_str, _ = _update_data_file(
             folder_name=folder_name,
             data_to_write=data_for_folder,
             existing_urls_set=existing_urls,
         )
-        updated_files_list.append(file_name)
-        total_urls_extracted_count += urls_count
+        updated_files_list.append(file_name_str)
 
     if updated_files_list:
         logger.info(
@@ -1067,6 +1065,129 @@ def _compare_yaml_and_log_changes(
         return False
 
 
+# --- Helper function for processing a single media item ---
+def _process_single_media_item(
+    media_id_from_folder,
+    media_name,
+    external_source_type,
+    driver,
+    current_api_key,
+    current_sonarr_api_key,
+    current_sonarr_endpoint,
+    current_process_all,
+    current_retry_on_yaml_failure,
+    current_preferred_users,
+    folder_map_for_media,
+    updated_titles_list,
+):
+    global cache, new_data, folder_bulk_data, yaml  # Access globals needed by helpers
+
+    try:
+        tmdb_id, media_type = fetch_tmdb_id(
+            media_id=media_id_from_folder,
+            external_source=external_source_type,
+            api_key=current_api_key,
+            cache=cache,
+            media_name=media_name,
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
+        )
+        return
+
+    if not tmdb_id:
+        logger.debug(
+            f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
+        )
+        return
+
+    tvdb_id_for_tv, ended_status = None, None
+    if media_type == "tv":
+        tvdb_id_for_tv, ended_status = _fetch_tv_series_details(
+            media_name,
+            current_sonarr_api_key,
+            current_sonarr_endpoint,
+            tmdb_id,
+            media_id_from_folder,
+            external_source_type,
+            logger,
+        )
+
+    old_yaml_content, is_in_yaml, key_for_log = _get_existing_yaml_details(
+        media_id_from_folder,
+        media_type,
+        tmdb_id,
+        tvdb_id_for_tv,
+        folder_map_for_media,
+        folder_bulk_data,
+        logger,
+    )
+
+    if _should_skip_scraping(
+        media_name,
+        media_type,
+        tmdb_id,
+        key_for_log,
+        ended_status,
+        is_in_yaml,
+        current_process_all,
+        logger,
+    ):
+        return
+
+    logger.info(
+        f"Processing Media: '{media_name}' (Source ID: {media_id_from_folder}, TMDB ID: {tmdb_id}, TVDB ID: {tvdb_id_for_tv if tvdb_id_for_tv else 'N/A'}, Type: {media_type})"
+    )
+
+    new_raw_yaml = scrape_mediux(
+        driver=driver,
+        tmdb_id=tmdb_id,
+        media_type=media_type,
+        retry_on_yaml_failure=current_retry_on_yaml_failure,
+        preferred_users=current_preferred_users,
+    )
+    if not new_raw_yaml:
+        logger.warning(
+            f"No YAML data found from Mediux for '{media_name}' (TMDB ID {tmdb_id})."
+        )
+        return
+
+    new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+        new_raw_yaml,
+        media_name,
+        media_type,
+        tmdb_id,
+        tvdb_id_for_tv,
+        yaml,  # Pass global yaml parser
+        logger,
+    )
+
+    id_for_comp_log = (
+        tvdb_id_for_tv if media_type == "tv" and tvdb_id_for_tv else tmdb_id
+    )
+
+    title_should_be_updated_flag = _compare_yaml_and_log_changes(
+        media_name,
+        media_type,
+        id_for_comp_log,
+        old_yaml_content,
+        new_comparable_content,
+        logger,
+    )
+
+    if title_should_be_updated_flag:
+        log_id_str = (
+            f"TVDB: {tvdb_id_for_tv}"
+            if media_type == "tv" and tvdb_id_for_tv
+            else f"TMDB: {tmdb_id}"
+        )
+        updated_titles_list.append(f"{media_name} ({log_id_str})")
+
+    for folder_name in folder_map_for_media.get(media_id_from_folder, []):
+        new_data[folder_name][tmdb_id] = new_raw_yaml
+
+
 # --- Main 'run' function ---
 def run(
     current_api_key,
@@ -1094,7 +1215,6 @@ def run(
 
     cache = load_cache(cache_file=CACHE_FILE)
 
-    # Load folder_bulk_data (data from existing ./out/kometa/*.yml files)
     root_folders_list = (
         root_folder_global
         if isinstance(root_folder_global, list)
@@ -1104,7 +1224,7 @@ def run(
         root_path: os.listdir(root_path) for root_path in root_folders_list
     }
 
-    folder_bulk_data.clear()  # Ensure it's clean for this run
+    folder_bulk_data.clear()
     for root_path_item, folders_in_root in per_folder_cache.items():
         for folder_item in folders_in_root:
             if os.path.isdir(os.path.join(root_path_item, folder_item)):
@@ -1125,7 +1245,7 @@ def run(
     )
 
     updated_titles_list = []
-    new_data.clear()  # Clear for this run
+    new_data.clear()
 
     try:
         login_mediux(
@@ -1139,112 +1259,20 @@ def run(
             for media_id_from_folder, media_name, external_source_type in tqdm(
                 media_ids_to_process, desc="Processing media IDs"
             ):
-                try:
-                    tmdb_id, media_type = fetch_tmdb_id(
-                        media_id=media_id_from_folder,
-                        external_source=external_source_type,
-                        api_key=current_api_key,
-                        cache=cache,
-                        media_name=media_name,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
-                    )
-                    continue
-
-                if not tmdb_id:
-                    logger.debug(
-                        f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
-                    )
-                    continue
-
-                tvdb_id_for_tv, ended_status = None, None
-                if media_type == "tv":
-                    tvdb_id_for_tv, ended_status = _fetch_tv_series_details(
-                        media_name,
-                        current_sonarr_api_key,
-                        current_sonarr_endpoint,
-                        tmdb_id,
-                        media_id_from_folder,
-                        external_source_type,
-                        logger,
-                    )
-
-                old_yaml_content, is_in_yaml, key_for_log = _get_existing_yaml_details(
+                _process_single_media_item(
                     media_id_from_folder,
-                    media_type,
-                    tmdb_id,
-                    tvdb_id_for_tv,
-                    folder_map_for_media,
-                    folder_bulk_data,
-                    logger,
-                )
-
-                if _should_skip_scraping(
                     media_name,
-                    media_type,
-                    tmdb_id,
-                    key_for_log,
-                    ended_status,
-                    is_in_yaml,
+                    external_source_type,
+                    driver,
+                    current_api_key,
+                    current_sonarr_api_key,
+                    current_sonarr_endpoint,
                     current_process_all,
-                    logger,
-                ):
-                    continue
-
-                logger.info(
-                    f"Processing Media: '{media_name}' (Source ID: {media_id_from_folder}, TMDB ID: {tmdb_id}, TVDB ID: {tvdb_id_for_tv if tvdb_id_for_tv else 'N/A'}, Type: {media_type})"
+                    current_retry_on_yaml_failure,
+                    current_preferred_users,
+                    folder_map_for_media,
+                    updated_titles_list,
                 )
-
-                new_raw_yaml = scrape_mediux(
-                    driver=driver,
-                    tmdb_id=tmdb_id,
-                    media_type=media_type,
-                    retry_on_yaml_failure=current_retry_on_yaml_failure,
-                    preferred_users=current_preferred_users,
-                )
-                if not new_raw_yaml:
-                    logger.warning(
-                        f"No YAML data found from Mediux for '{media_name}' (TMDB ID {tmdb_id})."
-                    )
-                    continue
-
-                new_comparable_content = _extract_comparable_content_from_scraped_yaml(
-                    new_raw_yaml,
-                    media_name,
-                    media_type,
-                    tmdb_id,
-                    tvdb_id_for_tv,
-                    yaml,
-                    logger,  # Pass global yaml parser
-                )
-
-                # Determine ID for logging comparison results
-                id_for_comp_log = (
-                    tvdb_id_for_tv if media_type == "tv" and tvdb_id_for_tv else tmdb_id
-                )
-
-                title_should_be_updated_flag = _compare_yaml_and_log_changes(
-                    media_name,
-                    media_type,
-                    id_for_comp_log,
-                    old_yaml_content,
-                    new_comparable_content,
-                    logger,
-                )
-
-                if title_should_be_updated_flag:
-                    log_id_str = (
-                        f"TVDB: {tvdb_id_for_tv}"
-                        if media_type == "tv" and tvdb_id_for_tv
-                        else f"TMDB: {tmdb_id}"
-                    )
-                    updated_titles_list.append(f"{media_name} ({log_id_str})")
-
-                # Store the raw YAML data keyed by TMDB ID for output processing
-                for folder_name in folder_map_for_media.get(media_id_from_folder, []):
-                    new_data[folder_name][tmdb_id] = new_raw_yaml
     finally:
         logger.info("Quitting WebDriver...")
         if "driver" in locals() and driver:
@@ -1299,6 +1327,41 @@ def schedule_run(cron_expression, args_dict):  # Pass args_dict
 
 
 # --- Configuration and Argument Parsing ---
+
+
+def _resolve_config_value_helper(
+    arg_val,
+    env_var_name,
+    conf_key,
+    current_file_config,
+    default_val=None,
+    is_bool=False,
+    is_list=False,
+):
+    """Helper to get value: command-line arg > environment variable > config file > default."""
+    if arg_val is not None:
+        if is_bool:
+            # For BooleanOptionalAction, arg_val is already True/False or None.
+            # bool(None) is False, but we want to proceed if None.
+            return bool(arg_val)
+        return arg_val
+
+    env_val = os.environ.get(env_var_name)
+    if env_val is not None:
+        if is_bool:
+            return env_val.lower() in ["true", "1", "yes"]
+        if is_list:
+            return [item.strip() for item in env_val.split(",")] if env_val else []
+        return env_val
+
+    file_val = current_file_config.get(conf_key)
+    if file_val is not None:
+        # Assumes file_config types are correct (e.g., bools are bools, lists are lists)
+        return file_val
+
+    return default_val
+
+
 def _parse_arguments_and_load_config():
     parser = argparse.ArgumentParser(
         description="Scrape Mediux and create bulk data file."
@@ -1363,33 +1426,10 @@ def _parse_arguments_and_load_config():
         args.config_path
     )  # load_config already handles path and CONFIG_FILE
 
-    # Helper to get value: command-line arg > environment variable > config file > default
-    def get_config_value(
-        arg_val, env_var_name, conf_key, default_val=None, is_bool=False, is_list=False
-    ):
-        if arg_val is not None:
-            if is_bool:
-                return bool(arg_val)
-            return arg_val
-
-        env_val = os.environ.get(env_var_name)
-        if env_val is not None:
-            if is_bool:
-                return env_val.lower() in ["true", "1", "yes"]
-            if is_list:
-                return [item.strip() for item in env_val.split(",")] if env_val else []
-            return env_val
-
-        file_val = file_config.get(conf_key)
-        if file_val is not None:
-            return (
-                file_val  # Assumes file_config types are correct (e.g. bools are bools)
-            )
-
-        return default_val
-
     # Resolve root_folder: can be list from config or comma-separated from arg/env
-    root_folder_val = get_config_value(args.root_folder, "ROOT_FOLDER", "root_folder")
+    root_folder_val = _resolve_config_value_helper(
+        args.root_folder, "ROOT_FOLDER", "root_folder", file_config
+    )
     if isinstance(root_folder_val, str):
         root_folder_val = [
             rf.strip() for rf in root_folder_val.split(",") if rf.strip()
@@ -1403,48 +1443,76 @@ def _parse_arguments_and_load_config():
     app_config = {
         "config_path_val": args.config_path,  # Special, as it's used to load file_config
         "root_folder_val": root_folder_val,
-        "api_key": get_config_value(args.api_key, "API_KEY", "api_key"),
-        "username": get_config_value(args.username, "USERNAME", "username"),
-        "password": get_config_value(args.password, "PASSWORD", "password"),
-        "nickname": get_config_value(args.nickname, "NICKNAME", "nickname"),
-        "profile_path": get_config_value(
-            args.profile_path, "PROFILE_PATH", "profile_path", "/profile"
+        "api_key": _resolve_config_value_helper(
+            args.api_key, "API_KEY", "api_key", file_config
         ),
-        "sonarr_api_key": get_config_value(
-            args.sonarr_api_key, "SONARR_API_KEY", "sonarr_api_key"
+        "username": _resolve_config_value_helper(
+            args.username, "USERNAME", "username", file_config
         ),
-        "sonarr_endpoint": get_config_value(
-            args.sonarr_endpoint, "SONARR_ENDPOINT", "sonarr_endpoint"
+        "password": _resolve_config_value_helper(
+            args.password, "PASSWORD", "password", file_config
         ),
-        "selected_folders": get_config_value(
-            args.folders, "FOLDERS", "folders", is_list=True, default_val=[]
+        "nickname": _resolve_config_value_helper(
+            args.nickname, "NICKNAME", "nickname", file_config
         ),
-        "headless": get_config_value(
-            args.headless, "HEADLESS", "headless", default_val=True, is_bool=True
+        "profile_path": _resolve_config_value_helper(
+            args.profile_path, "PROFILE_PATH", "profile_path", file_config, "/profile"
         ),
-        "cron_expression": get_config_value(args.cron, "CRON_EXPRESSION", "cron"),
-        "output_dir_val": get_config_value(args.output_dir, "OUTPUT_DIR", "output_dir"),
-        "process_all": get_config_value(
+        "sonarr_api_key": _resolve_config_value_helper(
+            args.sonarr_api_key, "SONARR_API_KEY", "sonarr_api_key", file_config
+        ),
+        "sonarr_endpoint": _resolve_config_value_helper(
+            args.sonarr_endpoint, "SONARR_ENDPOINT", "sonarr_endpoint", file_config
+        ),
+        "selected_folders": _resolve_config_value_helper(
+            args.folders,
+            "FOLDERS",
+            "folders",
+            file_config,
+            default_val=[],
+            is_list=True,
+        ),
+        "headless": _resolve_config_value_helper(
+            args.headless,
+            "HEADLESS",
+            "headless",
+            file_config,
+            default_val=True,
+            is_bool=True,
+        ),
+        "cron_expression": _resolve_config_value_helper(
+            args.cron, "CRON_EXPRESSION", "cron", file_config
+        ),
+        "output_dir_val": _resolve_config_value_helper(
+            args.output_dir, "OUTPUT_DIR", "output_dir", file_config
+        ),
+        "process_all": _resolve_config_value_helper(
             args.process_all,
             "PROCESS_ALL",
             "process_all",
+            file_config,
             default_val=False,
             is_bool=True,
         ),
-        "chromedriver_path": get_config_value(
-            args.chromedriver_path, "CHROMEDRIVER_PATH", "chromedriver_path"
+        "chromedriver_path": _resolve_config_value_helper(
+            args.chromedriver_path,
+            "CHROMEDRIVER_PATH",
+            "chromedriver_path",
+            file_config,
         ),
-        "retry_on_yaml_failure": get_config_value(
+        "retry_on_yaml_failure": _resolve_config_value_helper(
             args.retry_on_yaml_failure,
             "RETRY_ON_YAML_FAILURE",
             "retry_on_yaml_failure",
+            file_config,
             default_val=False,
             is_bool=True,
         ),
-        "preferred_users": get_config_value(
+        "preferred_users": _resolve_config_value_helper(
             args.preferred_users,
             "PREFERRED_USERS",
             "preferred_users",
+            file_config,
             is_list=True,
             default_val=[],
         ),
@@ -1513,6 +1581,7 @@ if __name__ == "__main__":
             # For now, relying on atexit for non-cron runs.
     except SystemExit:  # Handle exit() calls gracefully
         logger.info("SystemExit called, script terminating.")
+        raise
     except KeyboardInterrupt:
         logger.info("Script interrupted by user (KeyboardInterrupt).")
     except Exception as e:
