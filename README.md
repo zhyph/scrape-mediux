@@ -73,7 +73,8 @@ cp config.example.json config.json
   "chromedriver_path": "/path/to/chromedriver",
   "retry_on_yaml_failure": false,
   "preferred_users": ["User1", "User2"],
-  "excluded_users": ["UserToIgnore1", "UserToIgnore2"]
+  "excluded_users": ["UserToIgnore1", "UserToIgnore2"],
+  "discord_webhook_url": "your_discord_webhook_url"
 }
 ```
 
@@ -117,6 +118,7 @@ These are just examples, you can name your folders whatever you want, but the sc
 - **`retry_on_yaml_failure`**: A boolean value (`true` or `false`) to determine whether the script should retry by reloading the page if the YAML button exists but an error occurs. Defaults to `false`.
 - **`preferred_users`**: A list of Mediux usernames to prioritize when fetching YAML data. The script will search for YAML buttons from these users in the specified order and use the first one found. If none are found, it will use the first available YAML button. (CASE SENSITIVE)
 - **`excluded_users`**: A list of Mediux usernames to ignore when fetching YAML data. The script will not use YAML buttons from any user in this list. (CASE SENSITIVE)
+- **`discord_webhook_url`**: The URL for a Discord webhook. If provided, the script will send a notification listing newly processed or updated titles to this webhook.
 
 ## Usage (Local)
 
@@ -151,6 +153,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--chromedriver_path`: Path to the ChromeDriver executable.
 - `--retry_on_yaml_failure`: Retry by reloading the page if the YAML button exists but an error occurs. If ommitted, the script will not retry.
 - `--preferred_users`: List of Mediux usernames to prioritize when fetching YAML data.
+- `--discord_webhook_url`: Discord webhook URL for notifications.
 
 ## Usage (Docker)
 

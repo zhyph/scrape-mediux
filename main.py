@@ -54,6 +54,7 @@ folder_bulk_data = {}
 root_folder_global = ""
 output_dir_global = None
 config_path_global = None
+discord_webhook_url_global = None
 
 yaml = YAML()
 yaml.allow_duplicate_keys = True
@@ -161,6 +162,7 @@ def load_config(config_path):
                     "username",
                     "nickname",
                     "sonarr_endpoint",
+                    "discord_webhook_url",
                 ]
                 else v
             )
@@ -854,25 +856,25 @@ def _update_data_file(folder_name, data_to_write, existing_urls_set):
     file_name = f"./out/kometa/{folder_name}_data.yml"
     total_urls = 0
 
-    current_file_data = {"metadata": {}}
+    file_data = {"metadata": {}}
     if os.path.exists(file_name):
         with open(file_name, "r", encoding="utf-8") as f:
             loaded_data = yaml.load(f)
             if loaded_data and "metadata" in loaded_data:
-                current_file_data = loaded_data
+                file_data = loaded_data
             elif loaded_data:
-                current_file_data["metadata"] = loaded_data
+                file_data["metadata"] = loaded_data
 
     for _, item_yaml_data in data_to_write.items():
         parsed_item_yaml = yaml.load(item_yaml_data)
         if parsed_item_yaml:
-            current_file_data["metadata"].update(parsed_item_yaml)
+            file_data["metadata"].update(parsed_item_yaml)
         item_urls = extract_set_urls(item_yaml_data)
         existing_urls_set.update(item_urls)
         total_urls += len(item_urls)
 
     with open(file_name, "w", encoding="utf-8") as f:
-        yaml.dump(current_file_data, f)
+        yaml.dump(file_data, f)
 
     return file_name, total_urls
 
@@ -945,6 +947,26 @@ def write_data_to_files():
     _copy_to_output_dir_local()
 
 
+def send_discord_notification(webhook_url, message):
+    """Sends a message to the configured Discord webhook."""
+    if not webhook_url:
+        logger.debug("Discord webhook URL not configured. Skipping notification.")
+        return
+
+    if not message:
+        logger.debug("No message content to send to Discord. Skipping notification.")
+        return
+
+    logger.info(f"Sending notification to Discord: {message[:100]}...")
+    payload = {"content": message}
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info("Discord notification sent successfully.")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send Discord notification: {e}")
+
+
 # --- Helper functions for the 'run' method ---
 
 
@@ -987,7 +1009,7 @@ def _get_existing_yaml_details(
     tmdb_id,
     tvdb_id_for_tv,
     folder_map,
-    current_folder_bulk_data,
+    folder_bulk_data,
     logger,
 ):
     """Determines existing YAML content and its key."""
@@ -1002,7 +1024,7 @@ def _get_existing_yaml_details(
 
     if key_for_existing_yaml_log:
         for f_name_map in folder_map.get(media_id_from_folder, []):
-            f_bulk_data = current_folder_bulk_data.get(f_name_map, {})
+            f_bulk_data = folder_bulk_data.get(f_name_map, {})
             metadata = f_bulk_data.get("metadata", {})
 
             content_found = False
@@ -1134,13 +1156,13 @@ def _process_single_media_item(
     media_name,
     external_source_type,
     driver,
-    current_api_key,
-    current_sonarr_api_key,
-    current_sonarr_endpoint,
-    current_process_all,
-    current_retry_on_yaml_failure,
-    current_preferred_users,
-    current_excluded_users,
+    api_key,
+    sonarr_api_key,
+    sonarr_endpoint,
+    process_all,
+    retry_on_yaml_failure,
+    preferred_users,
+    excluded_users,
     folder_map_for_media,
     updated_titles_list,
 ):
@@ -1150,7 +1172,7 @@ def _process_single_media_item(
         tmdb_id, media_type = fetch_tmdb_id(
             media_id=media_id_from_folder,
             external_source=external_source_type,
-            api_key=current_api_key,
+            api_key=api_key,
             cache=cache,
             media_name=media_name,
         )
@@ -1170,8 +1192,8 @@ def _process_single_media_item(
     if media_type == "tv":
         tvdb_id_for_tv, ended_status = _fetch_tv_series_details(
             media_name,
-            current_sonarr_api_key,
-            current_sonarr_endpoint,
+            sonarr_api_key,
+            sonarr_endpoint,
             tmdb_id,
             media_id_from_folder,
             external_source_type,
@@ -1195,7 +1217,7 @@ def _process_single_media_item(
         key_for_log,
         ended_status,
         is_in_yaml,
-        current_process_all,
+        process_all,
         logger,
     ):
         return
@@ -1208,9 +1230,9 @@ def _process_single_media_item(
         driver=driver,
         tmdb_id=tmdb_id,
         media_type=media_type,
-        retry_on_yaml_failure=current_retry_on_yaml_failure,
-        preferred_users=current_preferred_users,
-        excluded_users=current_excluded_users,
+        retry_on_yaml_failure=retry_on_yaml_failure,
+        preferred_users=preferred_users,
+        excluded_users=excluded_users,
     )
     if not new_raw_yaml:
         logger.warning(
@@ -1255,28 +1277,28 @@ def _process_single_media_item(
 
 # --- Main 'run' function ---
 def run(
-    current_api_key,
-    current_username,
-    current_password,
-    current_profile_path,
-    current_nickname,
-    current_sonarr_api_key,
-    current_sonarr_endpoint,
-    current_selected_folders=None,
-    current_headless=True,
-    current_process_all=False,
-    current_chromedriver_path=None,
-    current_retry_on_yaml_failure=False,
-    current_preferred_users=None,
-    current_excluded_users=None,
+    api_key,
+    username,
+    password,
+    profile_path,
+    nickname,
+    sonarr_api_key,
+    sonarr_endpoint,
+    selected_folders=None,
+    headless=True,
+    process_all=False,
+    chromedriver_path=None,
+    retry_on_yaml_failure=False,
+    preferred_users=None,
+    excluded_users=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder_global
     logger.info("Starting Mediux scraper...")
 
-    if current_preferred_users:
-        logger.info(f"Preferred users configured: {', '.join(current_preferred_users)}")
-    if current_excluded_users:
-        logger.info(f"Excluded users configured: {', '.join(current_excluded_users)}")
+    if preferred_users:
+        logger.info(f"Preferred users configured: {', '.join(preferred_users)}")
+    if excluded_users:
+        logger.info(f"Excluded users configured: {', '.join(excluded_users)}")
 
     validate_path(path=root_folder_global, description="Root folder")
     logger.info(f"Processing media from: {root_folder_global}")
@@ -1302,14 +1324,14 @@ def run(
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
     media_ids_to_process, folder_map_for_media = get_media_ids(
-        root_folder=root_folder_global, selected_folders=current_selected_folders
+        root_folder=root_folder_global, selected_folders=selected_folders
     )
     logger.info(f"Media IDs to process: {len(media_ids_to_process)}")
 
     driver = init_driver(
-        headless=current_headless,
-        profile_path=current_profile_path,
-        chromedriver_path=current_chromedriver_path,
+        headless=headless,
+        profile_path=profile_path,
+        chromedriver_path=chromedriver_path,
     )
 
     updated_titles_list = []
@@ -1318,9 +1340,9 @@ def run(
     try:
         login_mediux(
             driver=driver,
-            username=current_username,
-            password=current_password,
-            nickname=current_nickname,
+            username=username,
+            password=password,
+            nickname=nickname,
         )
 
         with logging_redirect_tqdm():
@@ -1332,13 +1354,13 @@ def run(
                     media_name,
                     external_source_type,
                     driver,
-                    current_api_key,
-                    current_sonarr_api_key,
-                    current_sonarr_endpoint,
-                    current_process_all,
-                    current_retry_on_yaml_failure,
-                    current_preferred_users,
-                    current_excluded_users,
+                    api_key,
+                    sonarr_api_key,
+                    sonarr_endpoint,
+                    process_all,
+                    retry_on_yaml_failure,
+                    preferred_users,
+                    excluded_users,
                     folder_map_for_media,
                     updated_titles_list,
                 )
@@ -1354,6 +1376,25 @@ def run(
                 logger.info(f"- {title}")
         else:
             logger.info("No titles were updated.")
+
+        if updated_titles_list and discord_webhook_url_global:
+            max_titles_per_message = 15
+            num_titles = len(updated_titles_list)
+
+            for i in range(0, num_titles, max_titles_per_message):
+                chunk = updated_titles_list[i : i + max_titles_per_message]
+                message_content = "Newly processed/updated titles:\n- " + "\n- ".join(
+                    chunk
+                )
+                if (
+                    num_titles > max_titles_per_message
+                    and i + max_titles_per_message < num_titles
+                ):
+                    message_content += f"\n...and {num_titles - (i + max_titles_per_message)} more titles."
+                elif num_titles > max_titles_per_message and i == 0:
+                    message_content += f"\n(Showing first {max_titles_per_message} of {num_titles} titles)"
+
+                send_discord_notification(discord_webhook_url_global, message_content)
 
 
 def schedule_run(cron_expression, args_dict):
@@ -1373,20 +1414,20 @@ def schedule_run(cron_expression, args_dict):
             logger.info("Scheduled run started...")
             try:
                 run(
-                    current_api_key=args_dict["api_key"],
-                    current_username=args_dict["username"],
-                    current_password=args_dict["password"],
-                    current_profile_path=args_dict["profile_path"],
-                    current_nickname=args_dict["nickname"],
-                    current_sonarr_api_key=args_dict["sonarr_api_key"],
-                    current_sonarr_endpoint=args_dict["sonarr_endpoint"],
-                    current_selected_folders=args_dict["selected_folders"],
-                    current_headless=args_dict["headless"],
-                    current_process_all=args_dict["process_all"],
-                    current_chromedriver_path=args_dict["chromedriver_path"],
-                    current_retry_on_yaml_failure=args_dict["retry_on_yaml_failure"],
-                    current_preferred_users=args_dict["preferred_users"],
-                    current_excluded_users=args_dict["excluded_users"],
+                    api_key=args_dict["api_key"],
+                    username=args_dict["username"],
+                    password=args_dict["password"],
+                    profile_path=args_dict["profile_path"],
+                    nickname=args_dict["nickname"],
+                    sonarr_api_key=args_dict["sonarr_api_key"],
+                    sonarr_endpoint=args_dict["sonarr_endpoint"],
+                    selected_folders=args_dict["selected_folders"],
+                    headless=args_dict["headless"],
+                    process_all=args_dict["process_all"],
+                    chromedriver_path=args_dict["chromedriver_path"],
+                    retry_on_yaml_failure=args_dict["retry_on_yaml_failure"],
+                    preferred_users=args_dict["preferred_users"],
+                    excluded_users=args_dict["excluded_users"],
                 )
                 write_data_to_files()
             except Exception as e:
@@ -1403,7 +1444,7 @@ def _resolve_config_value_helper(
     arg_val,
     env_var_name,
     conf_key,
-    current_file_config,
+    file_config,
     default_val=None,
     is_bool=False,
     is_list=False,
@@ -1423,7 +1464,7 @@ def _resolve_config_value_helper(
             return [item.strip() for item in env_val.split(",")] if env_val else []
         return env_val
 
-    file_val = current_file_config.get(conf_key)
+    file_val = file_config.get(conf_key)
     if file_val is not None:
 
         return file_val
@@ -1491,6 +1532,9 @@ def _parse_arguments_and_load_config():
         "--excluded_users",
         nargs="*",
         help="List of Mediux users to exclude for YAML data",
+    )
+    parser.add_argument(
+        "--discord_webhook_url", type=str, help="Discord webhook URL for notifications"
     )
 
     args = parser.parse_args()
@@ -1591,6 +1635,12 @@ def _parse_arguments_and_load_config():
             is_list=True,
             default_val=[],
         ),
+        "discord_webhook_url": _resolve_config_value_helper(
+            args.discord_webhook_url,
+            "DISCORD_WEBHOOK_URL",
+            "discord_webhook_url",
+            file_config,
+        ),
         "tz": file_config.get("TZ"),
     }
     return app_config
@@ -1602,6 +1652,7 @@ if __name__ == "__main__":
     config_path_global = app_settings["config_path_val"]
     root_folder_global = app_settings["root_folder_val"]
     output_dir_global = app_settings["output_dir_val"]
+    discord_webhook_url_global = app_settings["discord_webhook_url"]
 
     if app_settings.get("tz"):
         os.environ["TZ"] = app_settings["tz"]
@@ -1621,20 +1672,20 @@ if __name__ == "__main__":
 
     try:
         run_args_for_schedule = {
-            "current_api_key": app_settings["api_key"],
-            "current_username": app_settings["username"],
-            "current_password": app_settings["password"],
-            "current_profile_path": app_settings["profile_path"],
-            "current_nickname": app_settings["nickname"],
-            "current_sonarr_api_key": app_settings["sonarr_api_key"],
-            "current_sonarr_endpoint": app_settings["sonarr_endpoint"],
-            "current_selected_folders": app_settings["selected_folders"],
-            "current_headless": app_settings["headless"],
-            "current_process_all": app_settings["process_all"],
-            "current_chromedriver_path": app_settings["chromedriver_path"],
-            "current_retry_on_yaml_failure": app_settings["retry_on_yaml_failure"],
-            "current_preferred_users": app_settings["preferred_users"],
-            "current_excluded_users": app_settings["excluded_users"],
+            "api_key": app_settings["api_key"],
+            "username": app_settings["username"],
+            "password": app_settings["password"],
+            "profile_path": app_settings["profile_path"],
+            "nickname": app_settings["nickname"],
+            "sonarr_api_key": app_settings["sonarr_api_key"],
+            "sonarr_endpoint": app_settings["sonarr_endpoint"],
+            "selected_folders": app_settings["selected_folders"],
+            "headless": app_settings["headless"],
+            "process_all": app_settings["process_all"],
+            "chromedriver_path": app_settings["chromedriver_path"],
+            "retry_on_yaml_failure": app_settings["retry_on_yaml_failure"],
+            "preferred_users": app_settings["preferred_users"],
+            "excluded_users": app_settings["excluded_users"],
         }
         if app_settings["cron_expression"]:
             schedule_run(
