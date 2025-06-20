@@ -808,7 +808,7 @@ def load_bulk_data(bulk_data_file, only_set_urls=False):
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
+def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=None):
     logger.info(f"Checking series status for {media_name}...")
     url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
@@ -819,11 +819,28 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint):
     response.raise_for_status()
     data = response.json()
     if data and isinstance(data, list):
+        if tmdb_id:
+            for series in data:
+                if series.get("tmdbId") == tmdb_id:
+                    logger.info(
+                        f"Found matching series for '{media_name}' by TMDB ID: {tmdb_id}"
+                    )
+                    tvdb_id = series.get("tvdbId")
+                    ended = series.get("ended")
+                    logger.info(
+                        f"Series status for {media_name}: TVDB ID={tvdb_id}, Ended={ended}."
+                    )
+                    return tvdb_id, ended
+            logger.warning(
+                f"No series with TMDB ID {tmdb_id} found for '{media_name}'. Falling back to first result."
+            )
+
+        # Fallback to the first result
         series_info = data[0]
-        tvdb_id = series_info["tvdbId"]
-        ended = series_info["ended"]
+        tvdb_id = series_info.get("tvdbId")
+        ended = series_info.get("ended")
         logger.info(
-            f"Series status for {media_name}: TVDB ID={tvdb_id}, Ended={ended}."
+            f"Series status for {media_name} (from first result): TVDB ID={tvdb_id}, Ended={ended}."
         )
         return tvdb_id, ended
     logger.warning(f"No series information found for {media_name}.")
@@ -986,6 +1003,7 @@ def _fetch_tv_series_details(
             media_name=media_name,
             sonarr_api_key=sonarr_api_key,
             sonarr_endpoint=sonarr_endpoint,
+            tmdb_id=tmdb_id,
         )
         if not tvdb_id and external_source_type == "tvdb_id":
             tvdb_id = int(external_source_id)
