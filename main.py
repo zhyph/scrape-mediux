@@ -60,19 +60,18 @@ yaml = YAML()
 yaml.allow_duplicate_keys = True
 
 
-def to_standard_dict(item):
-    """Recursively convert ruamel.yaml objects to standard Python dicts/lists."""
+def to_standard_dict(*, item):
     if isinstance(item, collections.abc.Mapping):
-        return {k: to_standard_dict(v) for k, v in item.items()}
+        return {k: to_standard_dict(item=v) for k, v in item.items()}
     elif isinstance(item, collections.abc.Sequence) and not isinstance(
         item, (str, bytes)
     ):
-        return [to_standard_dict(x) for x in item]
+        return [to_standard_dict(item=x) for x in item]
     else:
         return item
 
 
-def init_driver(headless=True, profile_path=None, chromedriver_path=None):
+def init_driver(*, headless=True, profile_path=None, chromedriver_path=None):
     logger.info("Initializing WebDriver...")
     options = Options()
     if headless:
@@ -101,7 +100,7 @@ def init_driver(headless=True, profile_path=None, chromedriver_path=None):
         raise
 
 
-def take_screenshot(driver: WebDriver, name: str):
+def take_screenshot(*, driver: WebDriver, name: str):
     screenshot_enabled = os.environ.get("SCREENSHOT") == "1"
     if not screenshot_enabled:
         return
@@ -120,8 +119,7 @@ def take_screenshot(driver: WebDriver, name: str):
         logger.error(f"Failed to save screenshot: {e}")
 
 
-def _validate_single_path(path, description):
-    """Helper function to validate a single path."""
+def _validate_single_path(*, path, description):
     if not path:
         raise ValueError(f"{description} is not set. Please check your configuration.")
     if not os.path.exists(path):
@@ -134,16 +132,15 @@ def _validate_single_path(path, description):
         )
 
 
-def validate_path(path, description="Path"):
-    """Validates that a path or list of paths exists and is a directory."""
+def validate_path(*, path, description="Path"):
     if isinstance(path, list):
         for p in path:
-            _validate_single_path(p, f"{description} entry")
+            _validate_single_path(path=p, description=f"{description} entry")
     else:
-        _validate_single_path(path, description)
+        _validate_single_path(path=path, description=description)
 
 
-def load_config(config_path):
+def load_config(*, config_path):
     config_path = config_path.rstrip("/")
     full_config_path = f"{config_path}/{CONFIG_FILE}"
     if os.path.exists(full_config_path):
@@ -174,8 +171,7 @@ def load_config(config_path):
     exit(1)
 
 
-def _extract_media_info_from_subfolder(subfolder):
-    """Extract media ID, name, and source from a subfolder name."""
+def _extract_media_info_from_subfolder(*, subfolder):
     imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
     tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
     tmdb_match = re.search(r"tmdb-(\d+)", subfolder)
@@ -197,23 +193,21 @@ def _extract_media_info_from_subfolder(subfolder):
     return media_id, media_name, external_source
 
 
-def _process_subfolders(folder_path, folder, media_ids, folder_map):
-    """Process subfolders within a folder to extract media IDs."""
+def _process_subfolders(*, folder_path, folder, media_ids, folder_map):
     subfolders = os.listdir(folder_path)
     for subfolder in subfolders:
         subfolder_path = os.path.join(folder_path, subfolder)
         if os.path.isdir(subfolder_path):
-            media_info = _extract_media_info_from_subfolder(subfolder)
+            media_info = _extract_media_info_from_subfolder(subfolder=subfolder)
             if media_info:
                 media_id, media_name, external_source = media_info
                 media_ids.append((media_id, media_name, external_source))
                 folder_map[media_id].append(folder)
 
 
-def get_media_ids(root_folder, selected_folders=None):
-    """Get media IDs from folder names and return them with folder mappings."""
+def get_media_ids(*, root_folder, selected_folders=None):
     logger.info("Fetching media IDs from folder names...")
-    validate_path(root_folder, "Root folder")
+    validate_path(path=root_folder, description="Root folder")
 
     media_ids = []
     folder_map = defaultdict(list)
@@ -226,14 +220,18 @@ def get_media_ids(root_folder, selected_folders=None):
             logger.debug(f"Searching folder: {folder}")
             folder_path = os.path.join(root, folder)
             if os.path.isdir(folder_path):
-                _process_subfolders(folder_path, folder, media_ids, folder_map)
+                _process_subfolders(
+                    folder_path=folder_path,
+                    folder=folder,
+                    media_ids=media_ids,
+                    folder_map=folder_map,
+                )
 
     logger.info(f"Found media IDs: {media_ids}")
     return media_ids, folder_map
 
 
-def _check_direct_tmdb_api(media_id, api_key):
-    """Helper function to check if media exists directly with TMDB ID"""
+def _check_direct_tmdb_api(*, media_id, api_key):
     logger.info(f"Using TMDB ID {media_id} directly.")
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -260,8 +258,7 @@ def _check_direct_tmdb_api(media_id, api_key):
     return tv_exists, movie_exists, tv_response, movie_response
 
 
-def _resolve_direct_tmdb_conflict(media_id, media_name, tv_response, movie_response):
-    """Resolve conflict when a TMDB ID exists as both movie and TV show"""
+def _resolve_direct_tmdb_conflict(*, media_id, media_name, tv_response, movie_response):
     logger.warning(
         f"TMDB ID {media_id} exists as both movie and TV show. Using media name to decide."
     )
@@ -276,8 +273,8 @@ def _resolve_direct_tmdb_conflict(media_id, media_name, tv_response, movie_respo
     tv_title = tv_data.get("name", "")
     movie_title = movie_data.get("title", "")
 
-    tv_score = calculate_title_similarity(media_name, tv_title)
-    movie_score = calculate_title_similarity(media_name, movie_title)
+    tv_score = calculate_title_similarity(title1=media_name, title2=tv_title)
+    movie_score = calculate_title_similarity(title1=media_name, title2=movie_title)
 
     logger.info(
         f"Title match scores - TV: '{tv_title}' ({tv_score:.2f}) vs Movie: '{movie_title}' ({movie_score:.2f})"
@@ -291,8 +288,7 @@ def _resolve_direct_tmdb_conflict(media_id, media_name, tv_response, movie_respo
         return media_id, "movie"
 
 
-def _query_external_id(media_id, external_source, api_key):
-    """Query TMDB API for external ID (IMDb or TVDB)"""
+def _query_external_id(*, media_id, external_source, api_key):
     logger.info(f"Fetching TMDB ID for {external_source} {media_id} from TMDB API...")
     url = f"https://api.themoviedb.org/3/find/{media_id}?external_source={external_source}"
     headers = {
@@ -308,17 +304,16 @@ def _query_external_id(media_id, external_source, api_key):
 
 
 def _resolve_external_id_conflict(
-    media_id, external_source, media_name, movie_result, tv_result
+    *, media_id, external_source, media_name, movie_result, tv_result
 ):
-    """Resolve conflict when external ID matches both movie and TV show"""
     logger.warning(f"{external_source} {media_id} matches both movie and TV show.")
 
     if media_name:
         tv_title = tv_result.get("name", "")
         movie_title = movie_result.get("title", "")
 
-        tv_score = calculate_title_similarity(media_name, tv_title)
-        movie_score = calculate_title_similarity(media_name, movie_title)
+        tv_score = calculate_title_similarity(title1=media_name, title2=tv_title)
+        movie_score = calculate_title_similarity(title1=media_name, title2=movie_title)
 
         logger.info(
             f"Title match scores - TV: '{tv_title}' ({tv_score:.2f}) vs Movie: '{movie_title}' ({movie_score:.2f})"
@@ -351,29 +346,22 @@ def _resolve_external_id_conflict(
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def fetch_tmdb_id(media_id, external_source, api_key, cache, media_name=None):
-    """
-    Fetch TMDB ID for a media item.
-
-    Args:
-        media_id: ID of the media (IMDb ID, TVDB ID, or TMDB ID)
-        external_source: Source of the ID (imdb_id, tvdb_id, or tmdb_id)
-        api_key: TMDB API key
-        cache: Cache dictionary to store/retrieve results
-        media_name: Name of the media item for title matching
-    """
+def fetch_tmdb_id(*, media_id, external_source, api_key, cache, media_name=None):
     if media_id in cache:
         logger.info(f"Fetching TMDB ID for {external_source} {media_id} from cache.")
         return cache[media_id]
 
     if external_source == "tmdb_id":
         tv_exists, movie_exists, tv_response, movie_response = _check_direct_tmdb_api(
-            media_id, api_key
+            media_id=media_id, api_key=api_key
         )
 
         if tv_exists and movie_exists:
             return _resolve_direct_tmdb_conflict(
-                media_id, media_name, tv_response, movie_response
+                media_id=media_id,
+                media_name=media_name,
+                tv_response=tv_response,
+                movie_response=movie_response,
             )
         elif tv_exists:
             logger.info(f"TMDB ID {media_id} identified as TV show.")
@@ -385,11 +373,17 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache, media_name=None):
             logger.error(f"TMDB ID {media_id} not found as movie or TV show.")
             return None, None
 
-    movie_results, tv_results = _query_external_id(media_id, external_source, api_key)
+    movie_results, tv_results = _query_external_id(
+        media_id=media_id, external_source=external_source, api_key=api_key
+    )
 
     if movie_results and tv_results:
         tmdb_id, media_type = _resolve_external_id_conflict(
-            media_id, external_source, media_name, movie_results[0], tv_results[0]
+            media_id=media_id,
+            external_source=external_source,
+            media_name=media_name,
+            movie_result=movie_results[0],
+            tv_result=tv_results[0],
         )
     elif movie_results:
         tmdb_id = movie_results[0]["id"]
@@ -407,11 +401,7 @@ def fetch_tmdb_id(media_id, external_source, api_key, cache, media_name=None):
     return tmdb_id, media_type
 
 
-def calculate_title_similarity(title1, title2):
-    """
-    Calculate similarity between two titles.
-    Returns a score between 0 and 1, where 1 is an exact match.
-    """
+def calculate_title_similarity(*, title1, title2):
     if not title1 or not title2:
         return 0
 
@@ -430,8 +420,7 @@ def calculate_title_similarity(title1, title2):
     return intersection / union
 
 
-def _get_media_url_and_texts(media_type, tmdb_id):
-    """Helper function to get URL and text info based on media type."""
+def _get_media_url_and_texts(*, media_type, tmdb_id):
     base_url = "https://mediux.pro"
     if media_type == "movie":
         url = f"{base_url}/movies/{tmdb_id}"
@@ -445,9 +434,8 @@ def _get_media_url_and_texts(media_type, tmdb_id):
 
 
 def _wait_for_update_completion(
-    driver, updating_text, success_text, media_type, tmdb_id
+    *, driver, updating_text, success_text, media_type, tmdb_id
 ):
-    """Helper function to wait for media update completion."""
     try:
         update_toast_xpath = (
             f"//li[contains(@class, 'toast')]//div[contains(text(), '{updating_text}')]"
@@ -488,8 +476,7 @@ def _wait_for_update_completion(
         logger.warning(f"Error while waiting for update process: {e}")
 
 
-def _wait_for_refresh_completion(driver, media_type, tmdb_id):
-    """Helper function to wait for refresh spinner completion."""
+def _wait_for_refresh_completion(*, driver, media_type, tmdb_id):
     try:
         logger.debug(f"Checking for refresh operations on {media_type} {tmdb_id}...")
 
@@ -517,8 +504,7 @@ def _wait_for_refresh_completion(driver, media_type, tmdb_id):
         logger.warning(f"Error while waiting for refresh spinner: {e}")
 
 
-def _find_yaml_button(driver, yaml_xpath, preferred_users, excluded_users=None):
-    """Helper function to find the YAML button, with support for preferred and excluded users."""
+def _find_yaml_button(*, driver, yaml_xpath, preferred_users, excluded_users=None):
     yaml_button = None
     all_yaml_buttons = WebDriverWait(driver, 10).until(
         EC.presence_of_all_elements_located((By.XPATH, yaml_xpath))
@@ -552,7 +538,6 @@ def _find_yaml_button(driver, yaml_xpath, preferred_users, excluded_users=None):
                         else:
                             logger.debug(f"Excluding YAML button from user: {username}")
                     else:
-
                         filtered_buttons.append(button)
                 else:
                     filtered_buttons.append(button)
@@ -601,6 +586,7 @@ def _find_yaml_button(driver, yaml_xpath, preferred_users, excluded_users=None):
 
 
 def scrape_mediux(
+    *,
     driver,
     tmdb_id,
     media_type,
@@ -609,7 +595,9 @@ def scrape_mediux(
     excluded_users=None,
 ):
     logger.info(f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}")
-    url, updating_text, success_text = _get_media_url_and_texts(media_type, tmdb_id)
+    url, updating_text, success_text = _get_media_url_and_texts(
+        media_type=media_type, tmdb_id=tmdb_id
+    )
 
     driver.get(url)
     logger.debug(f"Navigated to URL: {url}")
@@ -632,15 +620,22 @@ def scrape_mediux(
         logger.debug(f"Error getting page info: {e}")
 
     _wait_for_update_completion(
-        driver, updating_text, success_text, media_type, tmdb_id
+        driver=driver,
+        updating_text=updating_text,
+        success_text=success_text,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
     )
 
-    _wait_for_refresh_completion(driver, media_type, tmdb_id)
+    _wait_for_refresh_completion(driver=driver, media_type=media_type, tmdb_id=tmdb_id)
 
     try:
         logger.debug(f"Looking for YAML button for {media_type} {tmdb_id}...")
         yaml_button = _find_yaml_button(
-            driver, yaml_xpath, preferred_users, excluded_users
+            driver=driver,
+            yaml_xpath=yaml_xpath,
+            preferred_users=preferred_users,
+            excluded_users=excluded_users,
         )
         if not yaml_button:
             logger.warning(
@@ -682,23 +677,22 @@ def scrape_mediux(
             logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
             sleep(5)
             return scrape_mediux(
-                driver,
-                tmdb_id,
-                media_type,
+                driver=driver,
+                tmdb_id=tmdb_id,
+                media_type=media_type,
                 retry_on_yaml_failure=False,
                 preferred_users=preferred_users,
                 excluded_users=excluded_users,
             )
 
-        take_screenshot(driver, f"error_scraping_tmdb_{tmdb_id}")
+        take_screenshot(driver=driver, name=f"error_scraping_tmdb_{tmdb_id}")
         logger.error(
             f"Error scraping TMDB ID {tmdb_id}. This may be normal if no YAML is available."
         )
         return ""
 
 
-def extract_set_urls(yaml_data):
-
+def extract_set_urls(*, yaml_data):
     set_urls = set()
     lines = yaml_data.split("\n")
     for line in lines:
@@ -708,7 +702,7 @@ def extract_set_urls(yaml_data):
     return set_urls
 
 
-def login_mediux(driver, username, password, nickname):
+def login_mediux(*, driver, username, password, nickname):
     logger.info("Checking login status on Mediux...")
     base_url = "https://mediux.pro"
     driver.get(base_url)
@@ -755,12 +749,12 @@ def login_mediux(driver, username, password, nickname):
         )
         logger.info("Logged into Mediux successfully.")
     except Exception as e:
-        take_screenshot(driver, "error_login")
+        take_screenshot(driver=driver, name="error_login")
         logger.error(f"Failed to log into Mediux: {e}")
         raise
 
 
-def load_cache(cache_file):
+def load_cache(*, cache_file):
     if os.path.exists(cache_file):
         logger.info(f"Loading cache from {cache_file}...")
         with open(cache_file, "rb") as f:
@@ -771,7 +765,7 @@ def load_cache(cache_file):
     return {}
 
 
-def save_cache(updated_cache, cache_file):
+def save_cache(*, updated_cache, cache_file):
     logger.info(f"Saving cache to {cache_file}...")
     if os.path.exists(cache_file):
         with open(cache_file, "rb") as f:
@@ -786,12 +780,12 @@ def save_cache(updated_cache, cache_file):
     logger.info("Cache saved successfully.")
 
 
-def load_bulk_data(bulk_data_file, only_set_urls=False):
+def load_bulk_data(*, bulk_data_file, only_set_urls=False):
     if os.path.exists(bulk_data_file):
         logger.info(f"Loading bulk data from {bulk_data_file}...")
         with open(bulk_data_file, "r", encoding="utf-8") as f:
             if only_set_urls:
-                bulk_data = extract_set_urls(f.read())
+                bulk_data = extract_set_urls(yaml_data=f.read())
                 logger.info(f"Loaded {len(bulk_data)} set URLs from bulk data.")
             else:
                 bulk_data = yaml.load(f)
@@ -808,7 +802,7 @@ def load_bulk_data(bulk_data_file, only_set_urls=False):
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=None):
+def check_series_status(*, media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=None):
     logger.info(f"Checking series status for {media_name}...")
     url = f"{sonarr_endpoint}/api/v3/series/lookup?term={media_name}"
     headers = {
@@ -835,7 +829,6 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=Non
                 f"No series with TMDB ID {tmdb_id} found for '{media_name}'. Falling back to first result."
             )
 
-        # Fallback to the first result
         series_info = data[0]
         tvdb_id = series_info.get("tvdbId")
         ended = series_info.get("ended")
@@ -848,7 +841,6 @@ def check_series_status(media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=Non
 
 
 def _collect_existing_urls():
-    """Helper function to collect existing URLs from kometa files."""
     existing_urls = set()
 
     root_folders_list = (
@@ -863,13 +855,14 @@ def _collect_existing_urls():
             folder_path = os.path.join(root, folder_item)
             if os.path.isdir(folder_path):
                 file_path = f"./out/kometa/{folder_item}_data.yml"
-                existing_urls.update(load_bulk_data(file_path, True))
+                existing_urls.update(
+                    load_bulk_data(bulk_data_file=file_path, only_set_urls=True)
+                )
 
     return existing_urls
 
 
-def _update_data_file(folder_name, data_to_write, existing_urls_set):
-    """Helper function to update a single data file."""
+def _update_data_file(*, folder_name, data_to_write, existing_urls_set):
     file_name = f"./out/kometa/{folder_name}_data.yml"
     total_urls = 0
 
@@ -886,7 +879,7 @@ def _update_data_file(folder_name, data_to_write, existing_urls_set):
         parsed_item_yaml = yaml.load(item_yaml_data)
         if parsed_item_yaml:
             file_data["metadata"].update(parsed_item_yaml)
-        item_urls = extract_set_urls(item_yaml_data)
+        item_urls = extract_set_urls(yaml_data=item_yaml_data)
         existing_urls_set.update(item_urls)
         total_urls += len(item_urls)
 
@@ -897,7 +890,6 @@ def _update_data_file(folder_name, data_to_write, existing_urls_set):
 
 
 def _copy_to_output_dir_local():
-    """Helper function to copy files to output directory if specified."""
     if not output_dir_global:
         return
 
@@ -921,7 +913,6 @@ def _copy_to_output_dir_local():
 
 
 def write_data_to_files():
-    """Main function to write scraped data to files."""
     global new_data, cache, root_folder_global
 
     if not root_folder_global:
@@ -964,8 +955,7 @@ def write_data_to_files():
     _copy_to_output_dir_local()
 
 
-def send_discord_notification(webhook_url, message):
-    """Sends a message to the configured Discord webhook."""
+def send_discord_notification(*, webhook_url, message):
     if not webhook_url:
         logger.debug("Discord webhook URL not configured. Skipping notification.")
         return
@@ -984,10 +974,8 @@ def send_discord_notification(webhook_url, message):
         logger.error(f"Failed to send Discord notification: {e}")
 
 
-# --- Helper functions for the 'run' method ---
-
-
 def _fetch_tv_series_details(
+    *,
     media_name,
     sonarr_api_key,
     sonarr_endpoint,
@@ -996,7 +984,6 @@ def _fetch_tv_series_details(
     external_source_type,
     logger,
 ):
-    """Fetches TVDB ID and ended status for a TV series."""
     tvdb_id, ended = None, None
     try:
         tvdb_id, ended = check_series_status(
@@ -1022,6 +1009,7 @@ def _fetch_tv_series_details(
 
 
 def _get_existing_yaml_details(
+    *,
     media_id_from_folder,
     media_type,
     tmdb_id,
@@ -1030,7 +1018,6 @@ def _get_existing_yaml_details(
     folder_bulk_data,
     logger,
 ):
-    """Determines existing YAML content and its key."""
     old_parsed_yaml_content = None
     is_already_in_yaml = False
     key_for_existing_yaml_log = None
@@ -1063,6 +1050,7 @@ def _get_existing_yaml_details(
 
 
 def _should_skip_scraping(
+    *,
     media_name,
     media_type,
     tmdb_id,
@@ -1072,7 +1060,6 @@ def _should_skip_scraping(
     process_all_flag,
     logger,
 ):
-    """Determines if scraping should be skipped for an item."""
     if is_in_yaml and not process_all_flag:
         if media_type == "tv":
             if ended_status:
@@ -1093,9 +1080,15 @@ def _should_skip_scraping(
 
 
 def _extract_comparable_content_from_scraped_yaml(
-    raw_yaml_data, media_name, media_type, tmdb_id, tvdb_id_for_tv, yaml_parser, logger
+    *,
+    raw_yaml_data,
+    media_name,
+    media_type,
+    tmdb_id,
+    tvdb_id_for_tv,
+    yaml_parser,
+    logger,
 ):
-    """Parses newly scraped YAML and extracts the content for comparison."""
     if not raw_yaml_data:
         return None
     try:
@@ -1118,7 +1111,6 @@ def _extract_comparable_content_from_scraped_yaml(
         if actual_key_found:
             return parsed_wrapper[actual_key_found]
         elif len(parsed_wrapper) == 1:
-
             first_key = list(parsed_wrapper.keys())[0]
             logger.warning(
                 f"Scraped YAML for '{media_name}' (TMDB: {tmdb_id}) was keyed by '{first_key}' instead of expected '{expected_key}'. Using content from '{first_key}'."
@@ -1137,16 +1129,21 @@ def _extract_comparable_content_from_scraped_yaml(
 
 
 def _compare_yaml_and_log_changes(
-    media_name, media_type, id_for_logging, old_content, new_content_to_compare, logger
+    *,
+    media_name,
+    media_type,
+    id_for_logging,
+    old_content,
+    new_content_to_compare,
+    logger,
 ):
-    """Compares old and new YAML content and logs the result."""
     if new_content_to_compare is None:
         logger.warning(
             f"No new YAML content to compare for '{media_name}' (ID: {id_for_logging})."
         )
         return False
 
-    std_new_content = to_standard_dict(new_content_to_compare)
+    std_new_content = to_standard_dict(item=new_content_to_compare)
     id_type_str = "TVDB" if media_type == "tv" else "TMDB"
 
     if old_content is None:
@@ -1155,7 +1152,7 @@ def _compare_yaml_and_log_changes(
         )
         return True
 
-    std_old_content = to_standard_dict(old_content)
+    std_old_content = to_standard_dict(item=old_content)
     if std_new_content != std_old_content:
         logger.info(
             f"YAML data for {media_type} '{media_name}' ({id_type_str}: {id_for_logging}) has changed."
@@ -1168,8 +1165,8 @@ def _compare_yaml_and_log_changes(
         return False
 
 
-# --- Helper function for processing a single media item ---
 def _process_single_media_item(
+    *,
     media_id_from_folder,
     media_name,
     external_source_type,
@@ -1209,34 +1206,34 @@ def _process_single_media_item(
     tvdb_id_for_tv, ended_status = None, None
     if media_type == "tv":
         tvdb_id_for_tv, ended_status = _fetch_tv_series_details(
-            media_name,
-            sonarr_api_key,
-            sonarr_endpoint,
-            tmdb_id,
-            media_id_from_folder,
-            external_source_type,
-            logger,
+            media_name=media_name,
+            sonarr_api_key=sonarr_api_key,
+            sonarr_endpoint=sonarr_endpoint,
+            tmdb_id=tmdb_id,
+            external_source_id=media_id_from_folder,
+            external_source_type=external_source_type,
+            logger=logger,
         )
 
-    old_yaml_content, is_in_yaml, key_for_log = _get_existing_yaml_details(
-        media_id_from_folder,
-        media_type,
-        tmdb_id,
-        tvdb_id_for_tv,
-        folder_map_for_media,
-        folder_bulk_data,
-        logger,
+    old_yaml_content, is_already_in_yaml, key_for_log = _get_existing_yaml_details(
+        media_id_from_folder=media_id_from_folder,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        tvdb_id_for_tv=tvdb_id_for_tv,
+        folder_map=folder_map_for_media,
+        folder_bulk_data=folder_bulk_data,
+        logger=logger,
     )
 
     if _should_skip_scraping(
-        media_name,
-        media_type,
-        tmdb_id,
-        key_for_log,
-        ended_status,
-        is_in_yaml,
-        process_all,
-        logger,
+        media_name=media_name,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        key_for_log=key_for_log,
+        ended_status=ended_status,
+        is_in_yaml=is_already_in_yaml,
+        process_all_flag=process_all,
+        logger=logger,
     ):
         return
 
@@ -1259,13 +1256,13 @@ def _process_single_media_item(
         return
 
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
-        new_raw_yaml,
-        media_name,
-        media_type,
-        tmdb_id,
-        tvdb_id_for_tv,
-        yaml,
-        logger,
+        raw_yaml_data=new_raw_yaml,
+        media_name=media_name,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        tvdb_id_for_tv=tvdb_id_for_tv,
+        yaml_parser=yaml,
+        logger=logger,
     )
 
     id_for_comp_log = (
@@ -1273,12 +1270,12 @@ def _process_single_media_item(
     )
 
     title_should_be_updated_flag = _compare_yaml_and_log_changes(
-        media_name,
-        media_type,
-        id_for_comp_log,
-        old_yaml_content,
-        new_comparable_content,
-        logger,
+        media_name=media_name,
+        media_type=media_type,
+        id_for_logging=id_for_comp_log,
+        old_content=old_yaml_content,
+        new_content_to_compare=new_comparable_content,
+        logger=logger,
     )
 
     if title_should_be_updated_flag:
@@ -1293,8 +1290,8 @@ def _process_single_media_item(
         new_data[folder_name][tmdb_id] = new_raw_yaml
 
 
-# --- Main 'run' function ---
 def run(
+    *,
     api_key,
     username,
     password,
@@ -1368,19 +1365,19 @@ def run(
                 media_ids_to_process, desc="Processing media IDs"
             ):
                 _process_single_media_item(
-                    media_id_from_folder,
-                    media_name,
-                    external_source_type,
-                    driver,
-                    api_key,
-                    sonarr_api_key,
-                    sonarr_endpoint,
-                    process_all,
-                    retry_on_yaml_failure,
-                    preferred_users,
-                    excluded_users,
-                    folder_map_for_media,
-                    updated_titles_list,
+                    media_id_from_folder=media_id_from_folder,
+                    media_name=media_name,
+                    external_source_type=external_source_type,
+                    driver=driver,
+                    api_key=api_key,
+                    sonarr_api_key=sonarr_api_key,
+                    sonarr_endpoint=sonarr_endpoint,
+                    process_all=process_all,
+                    retry_on_yaml_failure=retry_on_yaml_failure,
+                    preferred_users=preferred_users,
+                    excluded_users=excluded_users,
+                    folder_map_for_media=folder_map_for_media,
+                    updated_titles_list=updated_titles_list,
                 )
     finally:
         logger.info("Quitting WebDriver...")
@@ -1412,10 +1409,12 @@ def run(
                 elif num_titles > max_titles_per_message and i == 0:
                     message_content += f"\n(Showing first {max_titles_per_message} of {num_titles} titles)"
 
-                send_discord_notification(discord_webhook_url_global, message_content)
+                send_discord_notification(
+                    webhook_url=discord_webhook_url_global, message=message_content
+                )
 
 
-def schedule_run(cron_expression, args_dict):
+def schedule_run(*, cron_expression, args_dict):
     logger.info(f"Scheduling script with cron expression: {cron_expression}")
     base_time = datetime.now()
     logger.info(f"Current time: {base_time}")
@@ -1431,22 +1430,7 @@ def schedule_run(cron_expression, args_dict):
         if now >= next_run_time:
             logger.info("Scheduled run started...")
             try:
-                run(
-                    api_key=args_dict["api_key"],
-                    username=args_dict["username"],
-                    password=args_dict["password"],
-                    profile_path=args_dict["profile_path"],
-                    nickname=args_dict["nickname"],
-                    sonarr_api_key=args_dict["sonarr_api_key"],
-                    sonarr_endpoint=args_dict["sonarr_endpoint"],
-                    selected_folders=args_dict["selected_folders"],
-                    headless=args_dict["headless"],
-                    process_all=args_dict["process_all"],
-                    chromedriver_path=args_dict["chromedriver_path"],
-                    retry_on_yaml_failure=args_dict["retry_on_yaml_failure"],
-                    preferred_users=args_dict["preferred_users"],
-                    excluded_users=args_dict["excluded_users"],
-                )
+                run(**args_dict)
                 write_data_to_files()
             except Exception as e:
                 logger.error(f"Error during scheduled run: {e}")
@@ -1455,10 +1439,8 @@ def schedule_run(cron_expression, args_dict):
         sleep(60)
 
 
-# --- Configuration and Argument Parsing ---
-
-
 def _resolve_config_value_helper(
+    *,
     arg_val,
     env_var_name,
     conf_key,
@@ -1467,10 +1449,8 @@ def _resolve_config_value_helper(
     is_bool=False,
     is_list=False,
 ):
-    """Helper to get value: command-line arg > environment variable > config file > default."""
     if arg_val is not None:
         if is_bool:
-
             return bool(arg_val)
         return arg_val
 
@@ -1484,7 +1464,6 @@ def _resolve_config_value_helper(
 
     file_val = file_config.get(conf_key)
     if file_val is not None:
-
         return file_val
 
     return default_val
@@ -1557,10 +1536,13 @@ def _parse_arguments_and_load_config():
 
     args = parser.parse_args()
 
-    file_config = load_config(args.config_path)
+    file_config = load_config(config_path=args.config_path)
 
     root_folder_val = _resolve_config_value_helper(
-        args.root_folder, "ROOT_FOLDER", "root_folder", file_config
+        arg_val=args.root_folder,
+        env_var_name="ROOT_FOLDER",
+        conf_key="root_folder",
+        file_config=file_config,
     )
     if isinstance(root_folder_val, str):
         root_folder_val = [
@@ -1573,91 +1555,119 @@ def _parse_arguments_and_load_config():
         "config_path_val": args.config_path,
         "root_folder_val": root_folder_val,
         "api_key": _resolve_config_value_helper(
-            args.api_key, "API_KEY", "api_key", file_config
+            arg_val=args.api_key,
+            env_var_name="API_KEY",
+            conf_key="api_key",
+            file_config=file_config,
         ),
         "username": _resolve_config_value_helper(
-            args.username, "USERNAME", "username", file_config
+            arg_val=args.username,
+            env_var_name="USERNAME",
+            conf_key="username",
+            file_config=file_config,
         ),
         "password": _resolve_config_value_helper(
-            args.password, "PASSWORD", "password", file_config
+            arg_val=args.password,
+            env_var_name="PASSWORD",
+            conf_key="password",
+            file_config=file_config,
         ),
         "nickname": _resolve_config_value_helper(
-            args.nickname, "NICKNAME", "nickname", file_config
+            arg_val=args.nickname,
+            env_var_name="NICKNAME",
+            conf_key="nickname",
+            file_config=file_config,
         ),
         "profile_path": _resolve_config_value_helper(
-            args.profile_path, "PROFILE_PATH", "profile_path", file_config, "/profile"
+            arg_val=args.profile_path,
+            env_var_name="PROFILE_PATH",
+            conf_key="profile_path",
+            file_config=file_config,
+            default_val="/profile",
         ),
         "sonarr_api_key": _resolve_config_value_helper(
-            args.sonarr_api_key, "SONARR_API_KEY", "sonarr_api_key", file_config
+            arg_val=args.sonarr_api_key,
+            env_var_name="SONARR_API_KEY",
+            conf_key="sonarr_api_key",
+            file_config=file_config,
         ),
         "sonarr_endpoint": _resolve_config_value_helper(
-            args.sonarr_endpoint, "SONARR_ENDPOINT", "sonarr_endpoint", file_config
+            arg_val=args.sonarr_endpoint,
+            env_var_name="SONARR_ENDPOINT",
+            conf_key="sonarr_endpoint",
+            file_config=file_config,
         ),
         "selected_folders": _resolve_config_value_helper(
-            args.folders,
-            "FOLDERS",
-            "folders",
-            file_config,
+            arg_val=args.folders,
+            env_var_name="FOLDERS",
+            conf_key="folders",
+            file_config=file_config,
             default_val=[],
             is_list=True,
         ),
         "headless": _resolve_config_value_helper(
-            args.headless,
-            "HEADLESS",
-            "headless",
-            file_config,
+            arg_val=args.headless,
+            env_var_name="HEADLESS",
+            conf_key="headless",
+            file_config=file_config,
             default_val=True,
             is_bool=True,
         ),
         "cron_expression": _resolve_config_value_helper(
-            args.cron, "CRON_EXPRESSION", "cron", file_config
+            arg_val=args.cron,
+            env_var_name="CRON_EXPRESSION",
+            conf_key="cron",
+            file_config=file_config,
         ),
         "output_dir_val": _resolve_config_value_helper(
-            args.output_dir, "OUTPUT_DIR", "output_dir", file_config
+            arg_val=args.output_dir,
+            env_var_name="OUTPUT_DIR",
+            conf_key="output_dir",
+            file_config=file_config,
         ),
         "process_all": _resolve_config_value_helper(
-            args.process_all,
-            "PROCESS_ALL",
-            "process_all",
-            file_config,
+            arg_val=args.process_all,
+            env_var_name="PROCESS_ALL",
+            conf_key="process_all",
+            file_config=file_config,
             default_val=False,
             is_bool=True,
         ),
         "chromedriver_path": _resolve_config_value_helper(
-            args.chromedriver_path,
-            "CHROMEDRIVER_PATH",
-            "chromedriver_path",
-            file_config,
+            arg_val=args.chromedriver_path,
+            env_var_name="CHROMEDRIVER_PATH",
+            conf_key="chromedriver_path",
+            file_config=file_config,
         ),
         "retry_on_yaml_failure": _resolve_config_value_helper(
-            args.retry_on_yaml_failure,
-            "RETRY_ON_YAML_FAILURE",
-            "retry_on_yaml_failure",
-            file_config,
+            arg_val=args.retry_on_yaml_failure,
+            env_var_name="RETRY_ON_YAML_FAILURE",
+            conf_key="retry_on_yaml_failure",
+            file_config=file_config,
             default_val=False,
             is_bool=True,
         ),
         "preferred_users": _resolve_config_value_helper(
-            args.preferred_users,
-            "PREFERRED_USERS",
-            "preferred_users",
-            file_config,
+            arg_val=args.preferred_users,
+            env_var_name="PREFERRED_USERS",
+            conf_key="preferred_users",
+            file_config=file_config,
             is_list=True,
             default_val=[],
         ),
         "excluded_users": _resolve_config_value_helper(
-            args.excluded_users,
-            "EXCLUDED_USERS",
-            "excluded_users",
-            file_config,
+            arg_val=args.excluded_users,
+            env_var_name="EXCLUDED_USERS",
+            conf_key="excluded_users",
+            file_config=file_config,
             is_list=True,
             default_val=[],
         ),
         "discord_webhook_url": _resolve_config_value_helper(
-            args.discord_webhook_url,
-            "DISCORD_WEBHOOK_URL",
-            "discord_webhook_url",
-            file_config,
+            arg_val=args.discord_webhook_url,
+            env_var_name="DISCORD_WEBHOOK_URL",
+            conf_key="discord_webhook_url",
+            file_config=file_config,
         ),
         "tz": file_config.get("TZ"),
     }
@@ -1677,7 +1687,7 @@ if __name__ == "__main__":
 
     if root_folder_global:
         try:
-            validate_path(root_folder_global, "Root folder(s)")
+            validate_path(path=root_folder_global, description="Root folder(s)")
             atexit.register(write_data_to_files)
         except Exception as e:
             logger.error(
