@@ -1190,7 +1190,7 @@ def _preprocess_yaml_string(*, yaml_string: str, logger) -> tuple[str, bool]:
     regex = re.compile(f"^{re.escape(misplaced_episode_indent)}episodes:", re.MULTILINE)
     matches = regex.findall(yaml_string)
 
-    if len(matches) <= 1:
+    if not matches:
         return yaml_string, False
 
     season_count = 1
