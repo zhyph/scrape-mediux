@@ -1309,22 +1309,31 @@ def _process_single_media_item(
 
             if parsed_for_check and isinstance(parsed_for_check, dict):
                 media_id_key = next(iter(parsed_for_check))
-                content = parsed_for_check[media_id_key]
+                content = parsed_for_check.get(media_id_key)
 
-                if content.get("seasons", {}).get("episodes", None) is not None:
-                    logger.info(
-                        f"Detected malformed 'seasons' block for '{media_name}'."
-                    )
-                    is_malformed = True
+                if content and "seasons" in content:
+                    seasons_node = content.get("seasons")
+                    if seasons_node and seasons_node.get("episodes", None) is not None:
+                        logger.info(
+                            f"Detected malformed 'seasons' block for '{media_name}'."
+                        )
+                        is_malformed = True
+                    else:
+                        logger.info(f"YAML structure for '{media_name}' appears valid.")
                 else:
-                    logger.info(f"YAML structure for '{media_name}' appears valid.")
+                    logger.info(
+                        f"YAML for '{media_name}' has no 'seasons' block or empty content, structure is considered valid."
+                    )
             else:
                 logger.warning(
                     f"Could not parse YAML for '{media_name}' into a dictionary for checking."
                 )
 
         except Exception as e:
-            logger.error(f"Error while checking YAML structure for '{media_name}': {e}")
+            logger.error(
+                f"Error while checking YAML structure for '{media_name}': {e}",
+                exc_info=True,
+            )
 
         if is_malformed:
             new_raw_yaml, was_fixed = _preprocess_yaml_string(
