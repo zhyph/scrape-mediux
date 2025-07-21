@@ -1165,19 +1165,23 @@ def _compare_yaml_and_log_changes(
         return False
 
 
-def _preprocess_yaml_string(*, yaml_string: str, logger) -> str:
+def _preprocess_yaml_string(*, yaml_string: str, logger) -> tuple[str, bool]:
     """
     Pre-processes a raw YAML string to fix structural issues where multiple
     'episodes:' blocks appear directly under 'seasons:'. This is invalid YAML.
     The function uses a targeted regex to wrap each misplaced 'episodes:' block
     in a numbered season key.
+
+    Returns:
+        A tuple containing the processed YAML string and a boolean indicating
+        if any changes were made.
     """
     if "seasons:" not in yaml_string or "episodes:" not in yaml_string:
-        return yaml_string
+        return yaml_string, False
 
     seasons_match = re.search(r"^(?P<indent>\s*)seasons:", yaml_string, re.MULTILINE)
     if not seasons_match:
-        return yaml_string
+        return yaml_string, False
 
     seasons_indent = seasons_match.group("indent")
     valid_season_indent = seasons_indent + "  "
@@ -1187,7 +1191,7 @@ def _preprocess_yaml_string(*, yaml_string: str, logger) -> str:
     matches = regex.findall(yaml_string)
 
     if len(matches) <= 1:
-        return yaml_string
+        return yaml_string, False
 
     season_count = 1
 
@@ -1202,7 +1206,7 @@ def _preprocess_yaml_string(*, yaml_string: str, logger) -> str:
     )
     processed_yaml = regex.sub(season_replacer, yaml_string)
 
-    return processed_yaml
+    return processed_yaml, True
 
 
 def _process_single_media_item(
@@ -1220,6 +1224,7 @@ def _process_single_media_item(
     excluded_users,
     folder_map_for_media,
     updated_titles_list,
+    fixed_titles_list,
 ):
     global cache, new_data, folder_bulk_data, yaml
 
@@ -1296,7 +1301,14 @@ def _process_single_media_item(
         return
 
     if media_type == "tv":
-        new_raw_yaml = _preprocess_yaml_string(yaml_string=new_raw_yaml, logger=logger)
+        new_raw_yaml, was_fixed = _preprocess_yaml_string(
+            yaml_string=new_raw_yaml, logger=logger
+        )
+        if was_fixed:
+            log_id_str = (
+                f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
+            )
+            fixed_titles_list.append(f"{media_name} ({log_id_str})")
 
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
         raw_yaml_data=new_raw_yaml,
@@ -1415,6 +1427,7 @@ def run(
     )
 
     updated_titles_list = []
+    fixed_titles_list = []
     new_data.clear()
 
     try:
@@ -1443,6 +1456,7 @@ def run(
                     excluded_users=excluded_users,
                     folder_map_for_media=folder_map_for_media,
                     updated_titles_list=updated_titles_list,
+                    fixed_titles_list=fixed_titles_list,
                 )
     finally:
         logger.info("Quitting WebDriver...")
@@ -1456,6 +1470,11 @@ def run(
                 logger.info(f"- {title}")
         else:
             logger.info("No titles were updated.")
+
+        if fixed_titles_list:
+            logger.info("Titles with Fixed YAML Structure:")
+            for title in fixed_titles_list:
+                logger.info(f"- {title}")
 
         if updated_titles_list and discord_webhook_url_global:
             max_titles_per_message = 15
@@ -1477,6 +1496,15 @@ def run(
                 send_discord_notification(
                     webhook_url=discord_webhook_url_global, message=message_content
                 )
+
+        if fixed_titles_list and discord_webhook_url_global:
+            message_content = (
+                "The following TV shows had their YAML structure automatically fixed "
+                "and may require manual review:\n- " + "\n- ".join(fixed_titles_list)
+            )
+            send_discord_notification(
+                webhook_url=discord_webhook_url_global, message=message_content
+            )
 
 
 def schedule_run(*, cron_expression, args_dict):
