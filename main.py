@@ -1311,7 +1311,7 @@ def _process_single_media_item(
                 media_id_key = next(iter(parsed_for_check))
                 content = parsed_for_check[media_id_key]
 
-                if content.get("seasons", None).get("episodes", None) is not None:
+                if content.get("seasons", {}).get("episodes", None) is not None:
                     logger.info(
                         f"Detected malformed 'seasons' block for '{media_name}'."
                     )
