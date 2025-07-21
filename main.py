@@ -1301,14 +1301,45 @@ def _process_single_media_item(
         return
 
     if media_type == "tv":
-        new_raw_yaml, was_fixed = _preprocess_yaml_string(
-            yaml_string=new_raw_yaml, logger=logger
-        )
-        if was_fixed:
-            log_id_str = (
-                f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
+        is_malformed = False
+        try:
+            yaml_check_parser = YAML()
+            yaml_check_parser.allow_duplicate_keys = True
+            parsed_for_check = yaml_check_parser.load(new_raw_yaml)
+
+            if parsed_for_check and isinstance(parsed_for_check, dict):
+                media_id_key = next(iter(parsed_for_check))
+                content = parsed_for_check[media_id_key]
+
+                if content.get("seasons", None).get("episodes", None) is not None:
+                    logger.info(
+                        f"Detected malformed 'seasons' block for '{media_name}'."
+                    )
+                    is_malformed = True
+                else:
+                    logger.info(f"YAML structure for '{media_name}' appears valid.")
+            else:
+                logger.warning(
+                    f"Could not parse YAML for '{media_name}' into a dictionary for checking."
+                )
+
+        except Exception as e:
+            logger.error(f"Error while checking YAML structure for '{media_name}': {e}")
+
+        if is_malformed:
+            new_raw_yaml, was_fixed = _preprocess_yaml_string(
+                yaml_string=new_raw_yaml, logger=logger
             )
-            fixed_titles_list.append(f"{media_name} ({log_id_str})")
+            if was_fixed:
+                logger.info(f"YAML for '{media_name}' was successfully fixed.")
+                log_id_str = (
+                    f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
+                )
+                fixed_titles_list.append(f"{media_name} ({log_id_str})")
+            else:
+                logger.warning(
+                    f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
+                )
 
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
         raw_yaml_data=new_raw_yaml,
@@ -1340,7 +1371,7 @@ def _process_single_media_item(
                 logger=logger,
             )
         except Exception as e:
-            logger.error(f"Failed to validate/fix TV YAML for '{media_name}': {e}")
+            logger.error(f"Failed to re-process TV YAML for '{media_name}': {e}")
 
     id_for_comp_log = (
         tvdb_id_for_tv if media_type == "tv" and tvdb_id_for_tv else tmdb_id
