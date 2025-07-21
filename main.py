@@ -1165,6 +1165,46 @@ def _compare_yaml_and_log_changes(
         return False
 
 
+def _preprocess_yaml_string(*, yaml_string: str, logger) -> str:
+    """
+    Pre-processes a raw YAML string to fix structural issues where multiple
+    'episodes:' blocks appear directly under 'seasons:'. This is invalid YAML.
+    The function uses a targeted regex to wrap each misplaced 'episodes:' block
+    in a numbered season key.
+    """
+    if "seasons:" not in yaml_string or "episodes:" not in yaml_string:
+        return yaml_string
+
+    seasons_match = re.search(r"^(?P<indent>\s*)seasons:", yaml_string, re.MULTILINE)
+    if not seasons_match:
+        return yaml_string
+
+    seasons_indent = seasons_match.group("indent")
+    valid_season_indent = seasons_indent + "  "
+    misplaced_episode_indent = valid_season_indent + "  "
+
+    regex = re.compile(f"^{re.escape(misplaced_episode_indent)}episodes:", re.MULTILINE)
+    matches = regex.findall(yaml_string)
+
+    if len(matches) <= 1:
+        return yaml_string
+
+    season_count = 1
+
+    def season_replacer(match):
+        nonlocal season_count
+        replacement = f"{valid_season_indent}{season_count}:\n{match.group(0)}"
+        season_count += 1
+        return replacement
+
+    logger.info(
+        f"Preprocessing YAML to fix {len(matches)} misplaced 'episodes' blocks."
+    )
+    processed_yaml = regex.sub(season_replacer, yaml_string)
+
+    return processed_yaml
+
+
 def _process_single_media_item(
     *,
     media_id_from_folder,
@@ -1255,6 +1295,9 @@ def _process_single_media_item(
         )
         return
 
+    if media_type == "tv":
+        new_raw_yaml = _preprocess_yaml_string(yaml_string=new_raw_yaml, logger=logger)
+
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
         raw_yaml_data=new_raw_yaml,
         media_name=media_name,
@@ -1264,6 +1307,28 @@ def _process_single_media_item(
         yaml_parser=yaml,
         logger=logger,
     )
+
+    if media_type == "tv" and new_comparable_content:
+        try:
+            parsed_yaml_data = yaml.load(new_raw_yaml)
+            from io import StringIO
+
+            string_stream = StringIO()
+            yaml.dump(parsed_yaml_data, string_stream)
+            new_raw_yaml = string_stream.getvalue()
+
+            # Re-extract content for comparison after fixing
+            new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+                raw_yaml_data=new_raw_yaml,
+                media_name=media_name,
+                media_type=media_type,
+                tmdb_id=tmdb_id,
+                tvdb_id_for_tv=tvdb_id_for_tv,
+                yaml_parser=yaml,
+                logger=logger,
+            )
+        except Exception as e:
+            logger.error(f"Failed to validate/fix TV YAML for '{media_name}': {e}")
 
     id_for_comp_log = (
         tvdb_id_for_tv if media_type == "tv" and tvdb_id_for_tv else tmdb_id
