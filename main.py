@@ -1511,9 +1511,13 @@ def run(
         else:
             logger.info("No titles were updated.")
 
-        if fixed_titles_list:
+        truly_fixed_and_updated = [
+            title for title in fixed_titles_list if title in updated_titles_list
+        ]
+
+        if truly_fixed_and_updated:
             logger.info("Titles with Fixed YAML Structure:")
-            for title in fixed_titles_list:
+            for title in truly_fixed_and_updated:
                 logger.info(f"- {title}")
 
         if updated_titles_list and discord_webhook_url_global:
@@ -1537,10 +1541,11 @@ def run(
                     webhook_url=discord_webhook_url_global, message=message_content
                 )
 
-        if fixed_titles_list and discord_webhook_url_global:
+        if truly_fixed_and_updated and discord_webhook_url_global:
             message_content = (
                 "The following TV shows had their YAML structure automatically fixed "
-                "and may require manual review:\n- " + "\n- ".join(fixed_titles_list)
+                "and may require manual review:\n- "
+                + "\n- ".join(truly_fixed_and_updated)
             )
             send_discord_notification(
                 webhook_url=discord_webhook_url_global, message=message_content
