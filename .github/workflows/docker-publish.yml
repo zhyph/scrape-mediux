@@ -37,6 +37,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKER_USERNAME }}/scrape-mediux
+          tags: |
+            # tag with latest on push to master
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            # tag with branch name
+            type=ref,event=branch
+            # tag with git tag
+            type=ref,event=tag
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
