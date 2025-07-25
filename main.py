@@ -17,7 +17,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.webdriver import WebDriver
-from webdriver_manager.chrome import ChromeDriverManager
 from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
@@ -85,11 +84,14 @@ def init_driver(*, headless=True, profile_path=None, chromedriver_path=None):
         options.add_argument(f"--user-data-dir={profile_path}")
 
     try:
+        logger.debug("Path to ChromeDriver: " + str(chromedriver_path))
         if chromedriver_path:
             driver = webdriver.Chrome(
                 service=ChromeService(chromedriver_path), options=options
             )
         else:
+            from webdriver_manager.chrome import ChromeDriverManager
+
             driver = webdriver.Chrome(
                 service=ChromeService(ChromeDriverManager().install()), options=options
             )
