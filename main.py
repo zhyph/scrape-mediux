@@ -18,6 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
+from urllib3.exceptions import ReadTimeoutError
 from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
@@ -612,10 +613,14 @@ def scrape_mediux(
     except TimeoutException:
         logger.warning(f"Page load timed out for {url}. Trying to continue...")
         driver.execute_script("window.stop();")
+    except ReadTimeoutError:
+        logger.error(f"Read timeout occurred during driver.get({url}).")
+        take_screenshot(driver=driver, name=f"error_driver_get_timeout_{tmdb_id}")
+        return ""
     except Exception as e:
         logger.error(f"An unexpected error occurred during driver.get({url}): {e}")
         take_screenshot(driver=driver, name=f"error_driver_get_{tmdb_id}")
-        raise
+        return ""
 
     logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
