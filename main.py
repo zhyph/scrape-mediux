@@ -1374,7 +1374,9 @@ def _process_single_media_item(
                     f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
                 )
         elif is_malformed and disable_season_fix:
-            logger.info(f"Malformed YAML detected for '{media_name}' but automatic fix is disabled.")
+            logger.info(
+                f"Malformed YAML detected for '{media_name}' but automatic fix is disabled."
+            )
 
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
         raw_yaml_data=new_raw_yaml,
@@ -1433,6 +1435,35 @@ def _process_single_media_item(
         new_data[folder_name][tmdb_id] = new_raw_yaml
 
 
+def _initialize_and_login_driver(
+    *,
+    headless,
+    profile_path,
+    chromedriver_path,
+    username,
+    password,
+    nickname,
+):
+    driver = init_driver(
+        headless=headless,
+        profile_path=profile_path,
+        chromedriver_path=chromedriver_path,
+    )
+    try:
+        login_mediux(
+            driver=driver,
+            username=username,
+            password=password,
+            nickname=nickname,
+        )
+        return driver
+    except Exception as e:
+        logger.error(f"Failed to login during driver re-initialization: {e}")
+        if driver:
+            driver.quit()
+        raise
+
+
 def run(
     *,
     api_key,
@@ -1487,19 +1518,16 @@ def run(
     )
     logger.info(f"Media IDs to process: {len(media_ids_to_process)}")
 
-    driver = init_driver(
-        headless=headless,
-        profile_path=profile_path,
-        chromedriver_path=chromedriver_path,
-    )
-
+    driver = None
     updated_titles_list = []
     fixed_titles_list = []
     new_data.clear()
 
     try:
-        login_mediux(
-            driver=driver,
+        driver = _initialize_and_login_driver(
+            headless=headless,
+            profile_path=profile_path,
+            chromedriver_path=chromedriver_path,
             username=username,
             password=password,
             nickname=nickname,
@@ -1509,26 +1537,41 @@ def run(
             for media_id_from_folder, media_name, external_source_type in tqdm(
                 media_ids_to_process, desc="Processing media IDs"
             ):
-                _process_single_media_item(
-                    media_id_from_folder=media_id_from_folder,
-                    media_name=media_name,
-                    external_source_type=external_source_type,
-                    driver=driver,
-                    api_key=api_key,
-                    sonarr_api_key=sonarr_api_key,
-                    sonarr_endpoint=sonarr_endpoint,
-                    process_all=process_all,
-                    retry_on_yaml_failure=retry_on_yaml_failure,
-                    preferred_users=preferred_users,
-                    excluded_users=excluded_users,
-                    folder_map_for_media=folder_map_for_media,
-                    updated_titles_list=updated_titles_list,
-                    fixed_titles_list=fixed_titles_list,
-                    disable_season_fix=disable_season_fix,
-                )
+                try:
+                    _process_single_media_item(
+                        media_id_from_folder=media_id_from_folder,
+                        media_name=media_name,
+                        external_source_type=external_source_type,
+                        driver=driver,
+                        api_key=api_key,
+                        sonarr_api_key=sonarr_api_key,
+                        sonarr_endpoint=sonarr_endpoint,
+                        process_all=process_all,
+                        retry_on_yaml_failure=retry_on_yaml_failure,
+                        preferred_users=preferred_users,
+                        excluded_users=excluded_users,
+                        folder_map_for_media=folder_map_for_media,
+                        updated_titles_list=updated_titles_list,
+                        fixed_titles_list=fixed_titles_list,
+                        disable_season_fix=disable_season_fix,
+                    )
+                except ReadTimeoutError:
+                    logger.error(
+                        "A read timeout error occurred. Re-initializing WebDriver and logging in again."
+                    )
+                    if driver:
+                        driver.quit()
+                    driver = _initialize_and_login_driver(
+                        headless=headless,
+                        profile_path=profile_path,
+                        chromedriver_path=chromedriver_path,
+                        username=username,
+                        password=password,
+                        nickname=nickname,
+                    )
     finally:
         logger.info("Quitting WebDriver...")
-        if "driver" in locals() and driver:
+        if driver:
             driver.quit()
         logger.info("Script finished.")
 
