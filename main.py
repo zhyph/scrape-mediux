@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from ruamel.yaml import YAML
 from datetime import datetime
@@ -95,6 +96,7 @@ def init_driver(*, headless=True, profile_path=None, chromedriver_path=None):
             driver = webdriver.Chrome(
                 service=ChromeService(ChromeDriverManager().install()), options=options
             )
+        driver.set_page_load_timeout(300)  # 5 minutes
         logger.debug("WebDriver initialized successfully.")
         return driver
     except Exception as e:
@@ -476,6 +478,7 @@ def _wait_for_update_completion(
 
     except Exception as e:
         logger.warning(f"Error while waiting for update process: {e}")
+        take_screenshot(driver=driver, name=f"error_wait_update_{media_type}_{tmdb_id}")
 
 
 def _wait_for_refresh_completion(*, driver, media_type, tmdb_id):
@@ -504,6 +507,9 @@ def _wait_for_refresh_completion(*, driver, media_type, tmdb_id):
 
     except Exception as e:
         logger.warning(f"Error while waiting for refresh spinner: {e}")
+        take_screenshot(
+            driver=driver, name=f"error_wait_refresh_{media_type}_{tmdb_id}"
+        )
 
 
 def _find_yaml_button(*, driver, yaml_xpath, preferred_users, excluded_users=None):
@@ -601,7 +607,16 @@ def scrape_mediux(
         media_type=media_type, tmdb_id=tmdb_id
     )
 
-    driver.get(url)
+    try:
+        driver.get(url)
+    except TimeoutException:
+        logger.warning(f"Page load timed out for {url}. Trying to continue...")
+        driver.execute_script("window.stop();")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during driver.get({url}): {e}")
+        take_screenshot(driver=driver, name=f"error_driver_get_{tmdb_id}")
+        raise
+
     logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
     sleep(5)
@@ -1336,6 +1351,7 @@ def _process_single_media_item(
                 f"Error while checking YAML structure for '{media_name}': {e}",
                 exc_info=True,
             )
+            take_screenshot(driver=driver, name=f"error_yaml_structure_check_{tmdb_id}")
 
         if is_malformed:
             new_raw_yaml, was_fixed = _preprocess_yaml_string(
