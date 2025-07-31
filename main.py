@@ -610,17 +610,9 @@ def scrape_mediux(
 
     try:
         driver.get(url)
-    except TimeoutException:
-        logger.warning(f"Page load timed out for {url}. Trying to continue...")
-        driver.execute_script("window.stop();")
-    except ReadTimeoutError:
-        logger.error(f"Read timeout occurred during driver.get({url}).")
-        take_screenshot(driver=driver, name=f"error_driver_get_timeout_{tmdb_id}")
-        return ""
     except Exception as e:
-        logger.error(f"An unexpected error occurred during driver.get({url}): {e}")
-        take_screenshot(driver=driver, name=f"error_driver_get_{tmdb_id}")
-        return ""
+        logger.error(f"An error occurred during driver.get({url}): {e}")
+        raise
 
     logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
@@ -1555,9 +1547,9 @@ def run(
                         fixed_titles_list=fixed_titles_list,
                         disable_season_fix=disable_season_fix,
                     )
-                except ReadTimeoutError:
+                except (ReadTimeoutError, TimeoutException):
                     logger.error(
-                        "A read timeout error occurred. Re-initializing WebDriver and logging in again."
+                        "A timeout error occurred. Re-initializing WebDriver and logging in again."
                     )
                     if driver:
                         driver.quit()
