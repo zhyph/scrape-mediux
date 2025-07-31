@@ -74,7 +74,8 @@ cp config.example.json config.json
   "retry_on_yaml_failure": false,
   "preferred_users": ["User1", "User2"],
   "excluded_users": ["UserToIgnore1", "UserToIgnore2"],
-  "discord_webhook_url": "your_discord_webhook_url"
+  "discord_webhook_url": "your_discord_webhook_url",
+  "disable_season_fix": false
 }
 ```
 
@@ -119,6 +120,7 @@ These are just examples, you can name your folders whatever you want, but the sc
 - **`preferred_users`**: A list of Mediux usernames to prioritize when fetching YAML data. The script will search for YAML buttons from these users in the specified order and use the first one found. If none are found, it will use the first available YAML button. (CASE SENSITIVE)
 - **`excluded_users`**: A list of Mediux usernames to ignore when fetching YAML data. The script will not use YAML buttons from any user in this list. (CASE SENSITIVE)
 - **`discord_webhook_url`**: The URL for a Discord webhook. If provided, the script will send a notification listing newly processed or updated titles to this webhook.
+- **`disable_season_fix`**: A boolean value (`true` or `false`) to disable the automatic fix for malformed seasons YAML structure in TV shows. When set to `true`, the script will not attempt to fix structural issues where multiple 'episodes:' blocks appear directly under 'seasons:'. Defaults to `false` (automatic fix enabled).
 
 ## Usage (Local)
 
@@ -153,7 +155,10 @@ If any arguments are provided, they will override the corresponding values in th
 - `--chromedriver_path`: Path to the ChromeDriver executable.
 - `--retry_on_yaml_failure`: Retry by reloading the page if the YAML button exists but an error occurs. If ommitted, the script will not retry.
 - `--preferred_users`: List of Mediux usernames to prioritize when fetching YAML data.
+- `--excluded_users`: List of Mediux usernames to exclude when fetching YAML data.
 - `--discord_webhook_url`: Discord webhook URL for notifications.
+- `--copy_only`: Only copy files to the output_dir and exit. This option skips the scraping process and only performs the file copying operation.
+- `--disable_season_fix`: Disable automatic fix for malformed seasons YAML structure in TV shows. When enabled, the script will not attempt to automatically correct structural issues in YAML.
 
 ## Usage (Docker)
 
