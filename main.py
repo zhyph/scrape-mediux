@@ -252,7 +252,6 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List
                 elif "thetvdb" in guid.id:
                     tvdb_id = guid.id.split("://")[1].split("?")[0]
 
-            # Prefer TMDB, then IMDB, then TVDB
             if tmdb_id:
                 media_ids.append((tmdb_id, media_name, "tmdb_id"))
                 folder_map[tmdb_id].append(lib_name)
@@ -282,11 +281,14 @@ def get_media_ids(
     """
     Fetch media IDs using Plex API if configured, otherwise fallback to folder scan.
     """
-    # 1. Use Plex if all three are set
     if plex_url and plex_token and plex_libraries and len(plex_libraries) > 0:
         return get_media_ids_from_plex(plex_url, plex_token, plex_libraries)
-    # 2. If plex_url, plex_token, and root_folder are set, warn and use root_folder
-    if plex_url and plex_token and root_folder and (not plex_libraries or len(plex_libraries) == 0):
+    if (
+        plex_url
+        and plex_token
+        and root_folder
+        and (not plex_libraries or len(plex_libraries) == 0)
+    ):
         try:
             from plexapi.server import PlexServer
 
@@ -295,13 +297,13 @@ def get_media_ids(
             logger.info("Available Plex libraries:")
             for lib in available:
                 logger.info(f"  - {lib}")
-            logger.warning("No Plex libraries specified. Please set 'plex_libraries' in your config or CLI. Using root_folder instead.")
+            logger.warning(
+                "No Plex libraries specified. Please set 'plex_libraries' in your config or CLI. Using root_folder instead."
+            )
         except Exception as e:
             logger.error(f"Could not connect to Plex to list libraries: {e}")
             logger.warning("Using root_folder instead.")
-        # Continue to folder-based scan below
 
-    # 3. If nothing is set, exit
     if not root_folder:
         logger.error("No Plex config or root_folder provided. Nothing to do. Exiting.")
         exit(1)
@@ -315,9 +317,7 @@ def get_media_ids(
     for root in root_folders:
         if not root:
             continue
-        folders_to_search = (
-            selected_folders if selected_folders else os.listdir(root)
-        )
+        folders_to_search = selected_folders if selected_folders else os.listdir(root)
 
         for folder in folders_to_search:
             logger.debug(f"Searching folder: {folder}")
@@ -975,8 +975,10 @@ def _collect_existing_urls():
 
 
 def _update_data_file(*, folder_name, data_to_write, existing_urls_set):
-    # Lowercase the folder/library name for the output file
-    file_name = f"./out/kometa/{folder_name.lower()}_data.yml"
+    import re
+
+    safe_folder = re.sub(r"[^\w\-]", "_", folder_name.lower())
+    file_name = f"./out/kometa/{safe_folder}_data.yml"
     total_urls = 0
 
     file_data = {"metadata": {}}
@@ -1513,7 +1515,6 @@ def _process_single_media_item(
             yaml.dump(parsed_yaml_data, string_stream)
             new_raw_yaml = string_stream.getvalue()
 
-            # Re-extract content for comparison after fixing
             new_comparable_content = _extract_comparable_content_from_scraped_yaml(
                 raw_yaml_data=new_raw_yaml,
                 media_name=media_name,
@@ -1872,7 +1873,6 @@ def _parse_arguments_and_load_config():
         action="store_true",
         help="Disable automatic fix for malformed seasons YAML structure",
     )
-    # Plex API arguments
     parser.add_argument(
         "--plex_url",
         type=str,
