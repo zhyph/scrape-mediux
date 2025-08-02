@@ -210,7 +210,101 @@ def _process_subfolders(*, folder_path, folder, media_ids, folder_map):
                 folder_map[media_id].append(folder)
 
 
-def get_media_ids(*, root_folder, selected_folders=None):
+from typing import List
+
+
+def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List[str]):
+    """
+    Fetch media IDs from Plex libraries using the Plex API.
+    Returns a list of (media_id, media_name, external_source) and a folder_map.
+    """
+    logger.info("Fetching media IDs from Plex API...")
+    try:
+        from plexapi.server import PlexServer
+    except ImportError:
+        logger.error(
+            "plexapi is not installed. Please add 'plexapi' to requirements.txt."
+        )
+        raise
+
+    plex = PlexServer(plex_url, plex_token)
+    media_ids = []
+    folder_map = defaultdict(list)
+
+    for lib_name in plex_libraries:
+        logger.info(f"Scanning Plex library: {lib_name}")
+        try:
+            library = plex.library.section(lib_name)
+        except Exception as e:
+            logger.error(f"Invalid Plex library section: {lib_name} ({e})")
+            continue
+        for item in library.all():
+            tmdb_id = None
+            imdb_id = None
+            tvdb_id = None
+            media_name = item.title
+
+            for guid in item.guids:
+                if "themoviedb" in guid.id:
+                    tmdb_id = guid.id.split("://")[1].split("?")[0]
+                elif "imdb" in guid.id:
+                    imdb_id = guid.id.split("://")[1].split("?")[0]
+                elif "thetvdb" in guid.id:
+                    tvdb_id = guid.id.split("://")[1].split("?")[0]
+
+            # Prefer TMDB, then IMDB, then TVDB
+            if tmdb_id:
+                media_ids.append((tmdb_id, media_name, "tmdb_id"))
+                folder_map[tmdb_id].append(lib_name)
+            elif imdb_id:
+                media_ids.append((imdb_id, media_name, "imdb_id"))
+                folder_map[imdb_id].append(lib_name)
+            elif tvdb_id:
+                media_ids.append((tvdb_id, media_name, "tvdb_id"))
+                folder_map[tvdb_id].append(lib_name)
+            else:
+                logger.warning(
+                    f"No known ID found for '{media_name}' in Plex library '{lib_name}'"
+                )
+
+    logger.info(f"Found {len(media_ids)} media IDs from Plex.")
+    return media_ids, folder_map
+
+
+def get_media_ids(
+    *,
+    root_folder=None,
+    selected_folders=None,
+    plex_url=None,
+    plex_token=None,
+    plex_libraries=None,
+):
+    """
+    Fetch media IDs using Plex API if configured, otherwise fallback to folder scan.
+    """
+    # 1. Use Plex if all three are set
+    if plex_url and plex_token and plex_libraries and len(plex_libraries) > 0:
+        return get_media_ids_from_plex(plex_url, plex_token, plex_libraries)
+    # 2. If plex_url, plex_token, and root_folder are set, warn and use root_folder
+    if plex_url and plex_token and root_folder and (not plex_libraries or len(plex_libraries) == 0):
+        try:
+            from plexapi.server import PlexServer
+
+            plex = PlexServer(plex_url, plex_token)
+            available = [section.title for section in plex.library.sections()]
+            logger.info("Available Plex libraries:")
+            for lib in available:
+                logger.info(f"  - {lib}")
+            logger.warning("No Plex libraries specified. Please set 'plex_libraries' in your config or CLI. Using root_folder instead.")
+        except Exception as e:
+            logger.error(f"Could not connect to Plex to list libraries: {e}")
+            logger.warning("Using root_folder instead.")
+        # Continue to folder-based scan below
+
+    # 3. If nothing is set, exit
+    if not root_folder:
+        logger.error("No Plex config or root_folder provided. Nothing to do. Exiting.")
+        exit(1)
     logger.info("Fetching media IDs from folder names...")
     validate_path(path=root_folder, description="Root folder")
 
@@ -219,7 +313,11 @@ def get_media_ids(*, root_folder, selected_folders=None):
     root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
 
     for root in root_folders:
-        folders_to_search = selected_folders if selected_folders else os.listdir(root)
+        if not root:
+            continue
+        folders_to_search = (
+            selected_folders if selected_folders else os.listdir(root)
+        )
 
         for folder in folders_to_search:
             logger.debug(f"Searching folder: {folder}")
@@ -811,7 +909,7 @@ def load_bulk_data(*, bulk_data_file, only_set_urls=False):
 
         return bulk_data
 
-    logger.warning(f"Bulk data file {bulk_data_file} not found.")
+    logger.debug(f"Bulk data file {bulk_data_file} not found.")
     return set() if only_set_urls else {"metadata": {}}
 
 
@@ -877,7 +975,8 @@ def _collect_existing_urls():
 
 
 def _update_data_file(*, folder_name, data_to_write, existing_urls_set):
-    file_name = f"./out/kometa/{folder_name}_data.yml"
+    # Lowercase the folder/library name for the output file
+    file_name = f"./out/kometa/{folder_name.lower()}_data.yml"
     total_urls = 0
 
     file_data = {"metadata": {}}
@@ -1243,25 +1342,50 @@ def _process_single_media_item(
 ):
     global cache, new_data, folder_bulk_data, yaml
 
-    try:
-        tmdb_id, media_type = fetch_tmdb_id(
-            media_id=media_id_from_folder,
-            external_source=external_source_type,
-            api_key=api_key,
-            cache=cache,
-            media_name=media_name,
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
-        )
-        return
+    if external_source_type == "tmdb_id":
+        tmdb_id = media_id_from_folder
+        lib_names = folder_map_for_media.get(media_id_from_folder, [])
+        media_type = None
+        if lib_names:
+            lib_name = lib_names[0].lower()
+            if "movie" in lib_name:
+                media_type = "movie"
+            elif "tv" in lib_name or "show" in lib_name or "series" in lib_name:
+                media_type = "tv"
+        if not media_type:
+            try:
+                tmdb_id, media_type = fetch_tmdb_id(
+                    media_id=media_id_from_folder,
+                    external_source=external_source_type,
+                    api_key=api_key,
+                    cache=cache,
+                    media_name=media_name,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to determine media type for TMDB ID {media_id_from_folder} ('{media_name}'): {e}"
+                )
+                return
+    else:
+        try:
+            tmdb_id, media_type = fetch_tmdb_id(
+                media_id=media_id_from_folder,
+                external_source=external_source_type,
+                api_key=api_key,
+                cache=cache,
+                media_name=media_name,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
+            )
+            return
 
-    if not tmdb_id:
-        logger.debug(
-            f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
-        )
-        return
+        if not tmdb_id:
+            logger.debug(
+                f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
+            )
+            return
 
     tvdb_id_for_tv, ended_status = None, None
     if media_type == "tv":
@@ -1506,7 +1630,11 @@ def run(
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
     media_ids_to_process, folder_map_for_media = get_media_ids(
-        root_folder=root_folder_global, selected_folders=selected_folders
+        root_folder=root_folder_global,
+        selected_folders=selected_folders,
+        plex_url=globals().get("app_settings", {}).get("plex_url"),
+        plex_token=globals().get("app_settings", {}).get("plex_token"),
+        plex_libraries=globals().get("app_settings", {}).get("plex_libraries"),
     )
     logger.info(f"Media IDs to process: {len(media_ids_to_process)}")
 
@@ -1744,6 +1872,22 @@ def _parse_arguments_and_load_config():
         action="store_true",
         help="Disable automatic fix for malformed seasons YAML structure",
     )
+    # Plex API arguments
+    parser.add_argument(
+        "--plex_url",
+        type=str,
+        help="Plex server URL (optional, enables Plex API mode if provided)",
+    )
+    parser.add_argument(
+        "--plex_token",
+        type=str,
+        help="Plex API token (optional, enables Plex API mode if provided)",
+    )
+    parser.add_argument(
+        "--plex_libraries",
+        nargs="*",
+        help="List of Plex library names to scan (optional, enables Plex API mode if provided)",
+    )
 
     args = parser.parse_args()
 
@@ -1879,6 +2023,26 @@ def _parse_arguments_and_load_config():
             env_var_name="DISCORD_WEBHOOK_URL",
             conf_key="discord_webhook_url",
             file_config=file_config,
+        ),
+        "plex_url": _resolve_config_value_helper(
+            arg_val=args.plex_url,
+            env_var_name="PLEX_URL",
+            conf_key="plex_url",
+            file_config=file_config,
+        ),
+        "plex_token": _resolve_config_value_helper(
+            arg_val=args.plex_token,
+            env_var_name="PLEX_TOKEN",
+            conf_key="plex_token",
+            file_config=file_config,
+        ),
+        "plex_libraries": _resolve_config_value_helper(
+            arg_val=args.plex_libraries,
+            env_var_name="PLEX_LIBRARIES",
+            conf_key="plex_libraries",
+            file_config=file_config,
+            is_list=True,
+            default_val=[],
         ),
         "tz": file_config.get("TZ"),
         "copy_only": _resolve_config_value_helper(
