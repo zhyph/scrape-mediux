@@ -1628,6 +1628,13 @@ def run(
                 folder_bulk_data[folder_item] = load_bulk_data(
                     bulk_data_file=f"./out/kometa/{folder_item}_data.yml"
                 )
+    if app_settings.get("plex_libraries"):
+        import re
+        for lib_name in app_settings["plex_libraries"]:
+            safe_lib = re.sub(r"[^\w\-]", "_", lib_name.lower())
+            folder_bulk_data[lib_name] = load_bulk_data(
+                bulk_data_file=f"./out/kometa/{safe_lib}_data.yml"
+            )
     logger.debug(f"Loaded bulk data for folders: {list(folder_bulk_data.keys())}")
 
     media_ids_to_process, folder_map_for_media = get_media_ids(
