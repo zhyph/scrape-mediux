@@ -16,7 +16,9 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
+from urllib3.exceptions import ReadTimeoutError
 from ruamel.yaml import YAML
 from datetime import datetime
 from time import sleep
@@ -95,6 +97,7 @@ def init_driver(*, headless=True, profile_path=None, chromedriver_path=None):
             driver = webdriver.Chrome(
                 service=ChromeService(ChromeDriverManager().install()), options=options
             )
+        driver.set_page_load_timeout(300)  # 5 minutes
         logger.debug("WebDriver initialized successfully.")
         return driver
     except Exception as e:
@@ -476,6 +479,7 @@ def _wait_for_update_completion(
 
     except Exception as e:
         logger.warning(f"Error while waiting for update process: {e}")
+        take_screenshot(driver=driver, name=f"error_wait_update_{media_type}_{tmdb_id}")
 
 
 def _wait_for_refresh_completion(*, driver, media_type, tmdb_id):
@@ -504,6 +508,9 @@ def _wait_for_refresh_completion(*, driver, media_type, tmdb_id):
 
     except Exception as e:
         logger.warning(f"Error while waiting for refresh spinner: {e}")
+        take_screenshot(
+            driver=driver, name=f"error_wait_refresh_{media_type}_{tmdb_id}"
+        )
 
 
 def _find_yaml_button(*, driver, yaml_xpath, preferred_users, excluded_users=None):
@@ -601,7 +608,12 @@ def scrape_mediux(
         media_type=media_type, tmdb_id=tmdb_id
     )
 
-    driver.get(url)
+    try:
+        driver.get(url)
+    except Exception as e:
+        logger.error(f"An error occurred during driver.get({url}): {e}")
+        raise
+
     logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
     sleep(5)
@@ -1227,6 +1239,7 @@ def _process_single_media_item(
     folder_map_for_media,
     updated_titles_list,
     fixed_titles_list,
+    disable_season_fix=False,
 ):
     global cache, new_data, folder_bulk_data, yaml
 
@@ -1336,8 +1349,9 @@ def _process_single_media_item(
                 f"Error while checking YAML structure for '{media_name}': {e}",
                 exc_info=True,
             )
+            take_screenshot(driver=driver, name=f"error_yaml_structure_check_{tmdb_id}")
 
-        if is_malformed:
+        if is_malformed and not disable_season_fix:
             new_raw_yaml, was_fixed = _preprocess_yaml_string(
                 yaml_string=new_raw_yaml, logger=logger
             )
@@ -1351,6 +1365,10 @@ def _process_single_media_item(
                 logger.warning(
                     f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
                 )
+        elif is_malformed and disable_season_fix:
+            logger.info(
+                f"Malformed YAML detected for '{media_name}' but automatic fix is disabled."
+            )
 
     new_comparable_content = _extract_comparable_content_from_scraped_yaml(
         raw_yaml_data=new_raw_yaml,
@@ -1409,6 +1427,35 @@ def _process_single_media_item(
         new_data[folder_name][tmdb_id] = new_raw_yaml
 
 
+def _initialize_and_login_driver(
+    *,
+    headless,
+    profile_path,
+    chromedriver_path,
+    username,
+    password,
+    nickname,
+):
+    driver = init_driver(
+        headless=headless,
+        profile_path=profile_path,
+        chromedriver_path=chromedriver_path,
+    )
+    try:
+        login_mediux(
+            driver=driver,
+            username=username,
+            password=password,
+            nickname=nickname,
+        )
+        return driver
+    except Exception as e:
+        logger.error(f"Failed to login during driver re-initialization: {e}")
+        if driver:
+            driver.quit()
+        raise
+
+
 def run(
     *,
     api_key,
@@ -1425,6 +1472,7 @@ def run(
     retry_on_yaml_failure=False,
     preferred_users=None,
     excluded_users=None,
+    disable_season_fix=False,
 ):
     global cache, new_data, folder_bulk_data, root_folder_global
     logger.info("Starting Mediux scraper...")
@@ -1462,19 +1510,16 @@ def run(
     )
     logger.info(f"Media IDs to process: {len(media_ids_to_process)}")
 
-    driver = init_driver(
-        headless=headless,
-        profile_path=profile_path,
-        chromedriver_path=chromedriver_path,
-    )
-
+    driver = None
     updated_titles_list = []
     fixed_titles_list = []
     new_data.clear()
 
     try:
-        login_mediux(
-            driver=driver,
+        driver = _initialize_and_login_driver(
+            headless=headless,
+            profile_path=profile_path,
+            chromedriver_path=chromedriver_path,
             username=username,
             password=password,
             nickname=nickname,
@@ -1484,25 +1529,41 @@ def run(
             for media_id_from_folder, media_name, external_source_type in tqdm(
                 media_ids_to_process, desc="Processing media IDs"
             ):
-                _process_single_media_item(
-                    media_id_from_folder=media_id_from_folder,
-                    media_name=media_name,
-                    external_source_type=external_source_type,
-                    driver=driver,
-                    api_key=api_key,
-                    sonarr_api_key=sonarr_api_key,
-                    sonarr_endpoint=sonarr_endpoint,
-                    process_all=process_all,
-                    retry_on_yaml_failure=retry_on_yaml_failure,
-                    preferred_users=preferred_users,
-                    excluded_users=excluded_users,
-                    folder_map_for_media=folder_map_for_media,
-                    updated_titles_list=updated_titles_list,
-                    fixed_titles_list=fixed_titles_list,
-                )
+                try:
+                    _process_single_media_item(
+                        media_id_from_folder=media_id_from_folder,
+                        media_name=media_name,
+                        external_source_type=external_source_type,
+                        driver=driver,
+                        api_key=api_key,
+                        sonarr_api_key=sonarr_api_key,
+                        sonarr_endpoint=sonarr_endpoint,
+                        process_all=process_all,
+                        retry_on_yaml_failure=retry_on_yaml_failure,
+                        preferred_users=preferred_users,
+                        excluded_users=excluded_users,
+                        folder_map_for_media=folder_map_for_media,
+                        updated_titles_list=updated_titles_list,
+                        fixed_titles_list=fixed_titles_list,
+                        disable_season_fix=disable_season_fix,
+                    )
+                except (ReadTimeoutError, TimeoutException):
+                    logger.error(
+                        "A timeout error occurred. Re-initializing WebDriver and logging in again."
+                    )
+                    if driver:
+                        driver.quit()
+                    driver = _initialize_and_login_driver(
+                        headless=headless,
+                        profile_path=profile_path,
+                        chromedriver_path=chromedriver_path,
+                        username=username,
+                        password=password,
+                        nickname=nickname,
+                    )
     finally:
         logger.info("Quitting WebDriver...")
-        if "driver" in locals() and driver:
+        if driver:
             driver.quit()
         logger.info("Script finished.")
 
@@ -1673,6 +1734,16 @@ def _parse_arguments_and_load_config():
     parser.add_argument(
         "--discord_webhook_url", type=str, help="Discord webhook URL for notifications"
     )
+    parser.add_argument(
+        "--copy_only",
+        action="store_true",
+        help="Only copy files to the output_dir and exit",
+    )
+    parser.add_argument(
+        "--disable_season_fix",
+        action="store_true",
+        help="Disable automatic fix for malformed seasons YAML structure",
+    )
 
     args = parser.parse_args()
 
@@ -1810,6 +1881,22 @@ def _parse_arguments_and_load_config():
             file_config=file_config,
         ),
         "tz": file_config.get("TZ"),
+        "copy_only": _resolve_config_value_helper(
+            arg_val=args.copy_only,
+            env_var_name="COPY_ONLY",
+            conf_key="copy_only",
+            file_config=file_config,
+            default_val=False,
+            is_bool=True,
+        ),
+        "disable_season_fix": _resolve_config_value_helper(
+            arg_val=args.disable_season_fix,
+            env_var_name="DISABLE_SEASON_FIX",
+            conf_key="disable_season_fix",
+            file_config=file_config,
+            default_val=False,
+            is_bool=True,
+        ),
     }
     return app_config
 
@@ -1821,6 +1908,14 @@ if __name__ == "__main__":
     root_folder_global = app_settings["root_folder_val"]
     output_dir_global = app_settings["output_dir_val"]
     discord_webhook_url_global = app_settings["discord_webhook_url"]
+
+    if app_settings.get("copy_only"):
+        if not output_dir_global:
+            logger.error("No output_dir specified for --copy_only mode.")
+            exit(1)
+        _copy_to_output_dir_local()
+        logger.info("Copy-only mode complete. Exiting.")
+        exit(0)
 
     if app_settings.get("tz"):
         os.environ["TZ"] = app_settings["tz"]
@@ -1854,6 +1949,7 @@ if __name__ == "__main__":
             "retry_on_yaml_failure": app_settings["retry_on_yaml_failure"],
             "preferred_users": app_settings["preferred_users"],
             "excluded_users": app_settings["excluded_users"],
+            "disable_season_fix": app_settings["disable_season_fix"],
         }
         if app_settings["cron_expression"]:
             schedule_run(
