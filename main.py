@@ -254,13 +254,13 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List
 
             if tmdb_id:
                 media_ids.append((tmdb_id, media_name, "tmdb_id"))
-                folder_map[tmdb_id].append(lib_name)
+                folder_map[tmdb_id].append((lib_name, getattr(library, "type", None)))
             elif imdb_id:
                 media_ids.append((imdb_id, media_name, "imdb_id"))
-                folder_map[imdb_id].append(lib_name)
+                folder_map[imdb_id].append((lib_name, getattr(library, "type", None)))
             elif tvdb_id:
                 media_ids.append((tvdb_id, media_name, "tvdb_id"))
-                folder_map[tvdb_id].append(lib_name)
+                folder_map[tvdb_id].append((lib_name, getattr(library, "type", None)))
             else:
                 logger.warning(
                     f"No known ID found for '{media_name}' in Plex library '{lib_name}'"
@@ -977,7 +977,8 @@ def _collect_existing_urls():
 def _update_data_file(*, folder_name, data_to_write, existing_urls_set):
     import re
 
-    safe_folder = re.sub(r"[^\w\-]", "_", folder_name.lower())
+    name_to_process = folder_name[0] if isinstance(folder_name, tuple) else folder_name
+    safe_folder = re.sub(r"[^\w\-]", "_", name_to_process.lower())
     file_name = f"./out/kometa/{safe_folder}_data.yml"
     total_urls = 0
 
@@ -1144,7 +1145,10 @@ def _get_existing_yaml_details(
 
     if key_for_existing_yaml_log:
         for f_name_map in folder_map.get(media_id_from_folder, []):
-            f_bulk_data = folder_bulk_data.get(f_name_map, {})
+            key_for_bulk_data = (
+                f_name_map[0] if isinstance(f_name_map, tuple) else f_name_map
+            )
+            f_bulk_data = folder_bulk_data.get(key_for_bulk_data, {})
             metadata = f_bulk_data.get("metadata", {})
 
             content_found = False
@@ -1158,7 +1162,7 @@ def _get_existing_yaml_details(
             if content_found:
                 is_already_in_yaml = True
                 logger.debug(
-                    f"Found existing YAML for {media_type} ID {key_for_existing_yaml_log} in folder {f_name_map}"
+                    f"Found existing YAML for {media_type} ID {key_for_existing_yaml_log} in folder {key_for_bulk_data}"
                 )
                 break
     return old_parsed_yaml_content, is_already_in_yaml, key_for_existing_yaml_log
@@ -1349,11 +1353,23 @@ def _process_single_media_item(
         lib_names = folder_map_for_media.get(media_id_from_folder, [])
         media_type = None
         if lib_names:
-            lib_name = lib_names[0].lower()
-            if "movie" in lib_name:
-                media_type = "movie"
-            elif "tv" in lib_name or "show" in lib_name or "series" in lib_name:
-                media_type = "tv"
+            lib_name, library_type = (
+                lib_names[0]
+                if isinstance(lib_names[0], tuple)
+                else (lib_names[0], None)
+            )
+            if library_type in ("movie", "show"):
+                media_type = "movie" if library_type == "movie" else "tv"
+            else:
+                lib_name_lower = lib_name.lower()
+                if "movie" in lib_name_lower:
+                    media_type = "movie"
+                elif (
+                    "tv" in lib_name_lower
+                    or "show" in lib_name_lower
+                    or "series" in lib_name_lower
+                ):
+                    media_type = "tv"
         if not media_type:
             try:
                 tmdb_id, media_type = fetch_tmdb_id(
@@ -1630,6 +1646,7 @@ def run(
                 )
     if app_settings.get("plex_libraries"):
         import re
+
         for lib_name in app_settings["plex_libraries"]:
             safe_lib = re.sub(r"[^\w\-]", "_", lib_name.lower())
             folder_bulk_data[lib_name] = load_bulk_data(
