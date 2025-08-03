@@ -7,6 +7,7 @@ import atexit
 import json
 import croniter
 import shutil
+import uuid
 import logging
 import collections.abc
 from collections import defaultdict
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 CACHE_FILE = "./out/tmdb_cache.pkl"
 CONFIG_FILE = "config.json"
 
+CLIENT_ID_FILE = "./out/plex_client_id.txt"
 new_data = defaultdict(dict)
 cache = {}
 folder_bulk_data = {}
@@ -176,6 +178,50 @@ def load_config(*, config_path):
     exit(1)
 
 
+def get_plex_client_identifier():
+    """
+    Retrieves or generates a persistent client identifier for Plex.
+    """
+    if os.path.exists(CLIENT_ID_FILE):
+        with open(CLIENT_ID_FILE, "r") as f:
+            client_id = f.read().strip()
+            logger.info(f"Using existing Plex client identifier: {client_id}")
+            return client_id
+
+    client_id = str(uuid.uuid4())
+    os.makedirs(os.path.dirname(CLIENT_ID_FILE), exist_ok=True)
+    with open(CLIENT_ID_FILE, "w") as f:
+        f.write(client_id)
+    logger.info(f"Generated and saved new Plex client identifier: {client_id}")
+    return client_id
+
+
+def create_plex_server(*, plex_url, plex_token):
+    """Creates a PlexServer instance with a persistent client identifier."""
+    try:
+        from plexapi.server import PlexServer
+
+        session = requests.Session()
+        session.headers.update(
+            {
+                "X-Plex-Product": "Scrape-Mediux",
+                "X-Plex-Client-Identifier": get_plex_client_identifier(),
+                "X-Plex-Device-Name": "Scrape-Mediux",
+                "X-Plex-Device": "Script",
+                "X-Plex-Version": "1.0",
+            }
+        )
+
+        return PlexServer(plex_url, plex_token, session=session)
+    except Exception as e:
+        logger.warning(
+            f"Could not create Plex session with custom identifier, falling back. Error: {e}"
+        )
+        from plexapi.server import PlexServer
+
+        return PlexServer(plex_url, plex_token)
+
+
 def _extract_media_info_from_subfolder(*, subfolder):
     imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
     tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
@@ -210,10 +256,7 @@ def _process_subfolders(*, folder_path, folder, media_ids, folder_map):
                 folder_map[media_id].append(folder)
 
 
-from typing import List
-
-
-def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List[str]):
+def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: list[str]):
     """
     Fetches media IDs from Plex libraries using the Plex API.
 
@@ -235,10 +278,12 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List
     try:
         from plexapi.server import PlexServer
     except ImportError:
-        logger.error("plexapi is not installed. Please add 'plexapi' to requirements.txt.")
+        logger.error(
+            "plexapi is not installed. Please add 'plexapi' to requirements.txt."
+        )
         raise
 
-    plex = PlexServer(plex_url, plex_token)
+    plex = create_plex_server(plex_url=plex_url, plex_token=plex_token)
     media_ids = []
     folder_map = defaultdict(list)
 
@@ -256,7 +301,10 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List
 
             # Extract and normalize GUIDs into a dictionary for easy lookup
             guids = {
-                guid.id.split("://")[0].replace("themoviedb", "tmdb").replace("thetvdb", "tvdb"): guid.id.split("://")[1].split("?")[0]
+                guid.id.split("://")[0]
+                .replace("themoviedb", "tmdb")
+                .replace("thetvdb", "tvdb"): guid.id.split("://")[1]
+                .split("?")[0]
                 for guid in item.guids
             }
 
@@ -303,7 +351,7 @@ def get_media_ids(
         try:
             from plexapi.server import PlexServer
 
-            plex = PlexServer(plex_url, plex_token)
+            plex = create_plex_server(plex_url=plex_url, plex_token=plex_token)
             available = [section.title for section in plex.library.sections()]
             logger.info("Available Plex libraries:")
             for lib in available:
@@ -508,6 +556,8 @@ def fetch_tmdb_id(*, media_id, external_source, api_key, cache, media_name=None)
     else:
         tmdb_id, media_type = None, None
 
+    if tmdb_id:
+        tmdb_id = str(tmdb_id)
     cache[media_id] = (tmdb_id, media_type)
     logger.info(
         f"TMDB ID for {external_source} {media_id}: {tmdb_id}, Media Type: {media_type}"
@@ -897,6 +947,14 @@ def load_bulk_data(*, bulk_data_file, only_set_urls=False):
                 logger.info(f"Loaded {len(bulk_data)} set URLs from bulk data.")
             else:
                 bulk_data = yaml.load(f)
+                if (
+                    bulk_data
+                    and "metadata" in bulk_data
+                    and isinstance(bulk_data["metadata"], dict)
+                ):
+                    bulk_data["metadata"] = {
+                        str(k): v for k, v in bulk_data["metadata"].items()
+                    }
                 logger.info("Bulk data loaded successfully.")
 
         if not bulk_data:
@@ -934,7 +992,7 @@ def check_series_status(*, media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=
                     logger.info(
                         f"Series status for {media_name}: TVDB ID={tvdb_id}, Ended={ended}."
                     )
-                    return tvdb_id, ended
+                    return str(tvdb_id) if tvdb_id else None, ended
             logger.warning(
                 f"No series with TMDB ID {tmdb_id} found for '{media_name}'. Falling back to first result."
             )
@@ -945,7 +1003,7 @@ def check_series_status(*, media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=
         logger.info(
             f"Series status for {media_name} (from first result): TVDB ID={tvdb_id}, Ended={ended}."
         )
-        return tvdb_id, ended
+        return str(tvdb_id) if tvdb_id else None, ended
     logger.warning(f"No series information found for {media_name}.")
     return None, None
 
@@ -1142,6 +1200,7 @@ def _get_existing_yaml_details(
         key_for_existing_yaml_log = tmdb_id
 
     if key_for_existing_yaml_log:
+        key_for_existing_yaml_log = str(key_for_existing_yaml_log)
         for f_name_map in folder_map.get(media_id_from_folder, []):
             key_for_bulk_data = (
                 f_name_map[0] if isinstance(f_name_map, tuple) else f_name_map
@@ -1149,15 +1208,8 @@ def _get_existing_yaml_details(
             f_bulk_data = folder_bulk_data.get(key_for_bulk_data, {})
             metadata = f_bulk_data.get("metadata", {})
 
-            content_found = False
             if key_for_existing_yaml_log in metadata:
                 old_parsed_yaml_content = metadata[key_for_existing_yaml_log]
-                content_found = True
-            elif str(key_for_existing_yaml_log) in metadata:
-                old_parsed_yaml_content = metadata[str(key_for_existing_yaml_log)]
-                content_found = True
-
-            if content_found:
                 is_already_in_yaml = True
                 logger.debug(
                     f"Found existing YAML for {media_type} ID {key_for_existing_yaml_log} in folder {key_for_bulk_data}"
@@ -1216,17 +1268,12 @@ def _extract_comparable_content_from_scraped_yaml(
             )
             return None
 
-        expected_key = tvdb_id_for_tv if media_type == "tv" else tmdb_id
+        parsed_wrapper = {str(k): v for k, v in parsed_wrapper.items()}
 
-        actual_key_found = None
-        if expected_key:
-            if expected_key in parsed_wrapper:
-                actual_key_found = expected_key
-            elif str(expected_key) in parsed_wrapper:
-                actual_key_found = str(expected_key)
+        expected_key = str(tvdb_id_for_tv if media_type == "tv" else tmdb_id)
 
-        if actual_key_found:
-            return parsed_wrapper[actual_key_found]
+        if expected_key in parsed_wrapper:
+            return parsed_wrapper[expected_key]
         elif len(parsed_wrapper) == 1:
             first_key = list(parsed_wrapper.keys())[0]
             logger.warning(
@@ -1364,9 +1411,7 @@ def _process_single_media_item(
                     media_name=media_name,
                 )
             except Exception as e:
-                logger.error(
-                    f"Error determining media type for TMDB ID {tmdb_id}: {e}"
-                )
+                logger.error(f"Error determining media type for TMDB ID {tmdb_id}: {e}")
                 return
     else:
         try:
