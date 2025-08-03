@@ -206,7 +206,7 @@ def _process_subfolders(*, folder_path, folder, media_ids, folder_map):
             media_info = _extract_media_info_from_subfolder(subfolder=subfolder)
             if media_info:
                 media_id, media_name, external_source = media_info
-                media_ids.append((media_id, media_name, external_source))
+                media_ids.append((media_id, media_name, external_source, None))
                 folder_map[media_id].append(folder)
 
 
@@ -215,16 +215,27 @@ from typing import List
 
 def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List[str]):
     """
-    Fetch media IDs from Plex libraries using the Plex API.
-    Returns a list of (media_id, media_name, external_source) and a folder_map.
+    Fetches media IDs from Plex libraries using the Plex API.
+
+    This function connects to a Plex server, iterates through the specified libraries,
+    and extracts media identifiers (TMDB, IMDB, TVDB) from the GUIDs of each item.
+    It prioritizes TMDB IDs, then IMDB, and finally TVDB.
+
+    Args:
+        plex_url: The URL of the Plex server.
+        plex_token: The authentication token for the Plex server.
+        plex_libraries: A list of library names to scan.
+
+    Returns:
+        A tuple containing:
+        - A list of tuples, where each tuple is (media_id, media_name, external_source, media_type).
+        - A defaultdict mapping each media ID to a list of the Plex libraries it was found in.
     """
     logger.info("Fetching media IDs from Plex API...")
     try:
         from plexapi.server import PlexServer
     except ImportError:
-        logger.error(
-            "plexapi is not installed. Please add 'plexapi' to requirements.txt."
-        )
+        logger.error("plexapi is not installed. Please add 'plexapi' to requirements.txt.")
         raise
 
     plex = PlexServer(plex_url, plex_token)
@@ -238,32 +249,32 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: List
         except Exception as e:
             logger.error(f"Invalid Plex library section: {lib_name} ({e})")
             continue
+
         for item in library.all():
-            tmdb_id = None
-            imdb_id = None
-            tvdb_id = None
             media_name = item.title
+            media_type = "tv" if library.type == "show" else library.type
 
-            for guid in item.guids:
-                if "themoviedb" in guid.id:
-                    tmdb_id = guid.id.split("://")[1].split("?")[0]
-                elif "imdb" in guid.id:
-                    imdb_id = guid.id.split("://")[1].split("?")[0]
-                elif "thetvdb" in guid.id:
-                    tvdb_id = guid.id.split("://")[1].split("?")[0]
+            # Extract and normalize GUIDs into a dictionary for easy lookup
+            guids = {
+                guid.id.split("://")[0].replace("themoviedb", "tmdb").replace("thetvdb", "tvdb"): guid.id.split("://")[1].split("?")[0]
+                for guid in item.guids
+            }
 
-            if tmdb_id:
-                media_ids.append((tmdb_id, media_name, "tmdb_id"))
-                folder_map[tmdb_id].append((lib_name, getattr(library, "type", None)))
-            elif imdb_id:
-                media_ids.append((imdb_id, media_name, "imdb_id"))
-                folder_map[imdb_id].append((lib_name, getattr(library, "type", None)))
-            elif tvdb_id:
-                media_ids.append((tvdb_id, media_name, "tvdb_id"))
-                folder_map[tvdb_id].append((lib_name, getattr(library, "type", None)))
+            # Prioritize which ID to use
+            id_to_use, source = None, None
+            if "tmdb" in guids:
+                id_to_use, source = guids["tmdb"], "tmdb_id"
+            elif "imdb" in guids:
+                id_to_use, source = guids["imdb"], "imdb_id"
+            elif "tvdb" in guids:
+                id_to_use, source = guids["tvdb"], "tvdb_id"
+
+            if id_to_use and source:
+                media_ids.append((id_to_use, media_name, source, media_type))
+                folder_map[id_to_use].append((lib_name, media_type))
             else:
                 logger.warning(
-                    f"No known ID found for '{media_name}' in Plex library '{lib_name}'"
+                    f"No usable ID found for '{media_name}' in Plex library '{lib_name}'"
                 )
 
     logger.info(f"Found {len(media_ids)} media IDs from Plex.")
@@ -715,21 +726,6 @@ def scrape_mediux(
     logger.debug(f"Navigated to URL: {url}")
     yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
     sleep(5)
-    logger.debug("Waited for page to load")
-
-    try:
-        page_title = driver.title
-        logger.debug(f"Page title: {page_title}")
-
-        toast_elements = driver.find_elements(
-            By.XPATH, "//li[contains(@class, 'toast')]"
-        )
-        if toast_elements:
-            logger.info(f"Found {len(toast_elements)} toast notifications on the page")
-            for i, toast in enumerate(toast_elements):
-                logger.debug(f"Toast {i+1} text: {toast.text}")
-    except Exception as e:
-        logger.debug(f"Error getting page info: {e}")
 
     _wait_for_update_completion(
         driver=driver,
@@ -926,8 +922,10 @@ def check_series_status(*, media_name, sonarr_api_key, sonarr_endpoint, tmdb_id=
     data = response.json()
     if data and isinstance(data, list):
         if tmdb_id:
+            logger.debug(f"Searching for series with TMDB ID: {tmdb_id}")
             for series in data:
-                if series.get("tmdbId") == tmdb_id:
+                series_tmdb_id = series.get("tmdbId")
+                if series_tmdb_id and str(series_tmdb_id) == str(tmdb_id):
                     logger.info(
                         f"Found matching series for '{media_name}' by TMDB ID: {tmdb_id}"
                     )
@@ -1345,65 +1343,53 @@ def _process_single_media_item(
     updated_titles_list,
     fixed_titles_list,
     disable_season_fix=False,
+    media_type_from_plex=None,
 ):
     global cache, new_data, folder_bulk_data, yaml
 
+    logger.info(f"Processing '{media_name}' (Source ID: {media_id_from_folder})")
+
+    tmdb_id = None
+    media_type = media_type_from_plex
+
     if external_source_type == "tmdb_id":
         tmdb_id = media_id_from_folder
-        lib_names = folder_map_for_media.get(media_id_from_folder, [])
-        media_type = None
-        if lib_names:
-            lib_name, library_type = (
-                lib_names[0]
-                if isinstance(lib_names[0], tuple)
-                else (lib_names[0], None)
-            )
-            if library_type in ("movie", "show"):
-                media_type = "movie" if library_type == "movie" else "tv"
-            else:
-                lib_name_lower = lib_name.lower()
-                if "movie" in lib_name_lower:
-                    media_type = "movie"
-                elif (
-                    "tv" in lib_name_lower
-                    or "show" in lib_name_lower
-                    or "series" in lib_name_lower
-                ):
-                    media_type = "tv"
         if not media_type:
             try:
-                tmdb_id, media_type = fetch_tmdb_id(
-                    media_id=media_id_from_folder,
-                    external_source=external_source_type,
+                _, media_type = fetch_tmdb_id(
+                    media_id=tmdb_id,
+                    external_source="tmdb_id",
                     api_key=api_key,
                     cache=cache,
                     media_name=media_name,
                 )
             except Exception as e:
                 logger.error(
-                    f"Failed to determine media type for TMDB ID {media_id_from_folder} ('{media_name}'): {e}"
+                    f"Error determining media type for TMDB ID {tmdb_id}: {e}"
                 )
                 return
     else:
         try:
-            tmdb_id, media_type = fetch_tmdb_id(
+            tmdb_id, media_type_from_fetch = fetch_tmdb_id(
                 media_id=media_id_from_folder,
                 external_source=external_source_type,
                 api_key=api_key,
                 cache=cache,
                 media_name=media_name,
             )
+            if not media_type:
+                media_type = media_type_from_fetch
         except Exception as e:
             logger.error(
-                f"Failed to fetch TMDB ID for {external_source_type} {media_id_from_folder} ('{media_name}'): {e}"
+                f"  - Error fetching TMDB ID for {external_source_type} {media_id_from_folder}: {e}"
             )
             return
 
-        if not tmdb_id:
-            logger.debug(
-                f"No TMDB ID found for {media_id_from_folder} ('{media_name}', {external_source_type}), skipping."
-            )
-            return
+    if not tmdb_id or not media_type:
+        logger.debug(
+            f"Could not resolve TMDB ID or media type for {media_id_from_folder}, skipping."
+        )
+        return
 
     tvdb_id_for_tv, ended_status = None, None
     if media_type == "tv":
@@ -1679,14 +1665,18 @@ def run(
         )
 
         with logging_redirect_tqdm():
-            for media_id_from_folder, media_name, external_source_type in tqdm(
-                media_ids_to_process, desc="Processing media IDs"
-            ):
+            for (
+                media_id_from_folder,
+                media_name,
+                external_source_type,
+                media_type_from_plex,
+            ) in tqdm(media_ids_to_process, desc="Processing media IDs"):
                 try:
                     _process_single_media_item(
                         media_id_from_folder=media_id_from_folder,
                         media_name=media_name,
                         external_source_type=external_source_type,
+                        media_type_from_plex=media_type_from_plex,
                         driver=driver,
                         api_key=api_key,
                         sonarr_api_key=sonarr_api_key,
