@@ -47,10 +47,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+os.environ["PLEXAPI_HEADER_IDENTIFIER"] = uuid.uuid3(
+    uuid.NAMESPACE_DNS, "Scrape-Mediux"
+).hex
+os.environ["PLEXAPI_HEADER_DEVICE_NAME"] = "Scrape-Mediux"
+os.environ["PLEXAPI_HEADER_PROVIDES"] = ""
+
+
 CACHE_FILE = "./out/tmdb_cache.pkl"
 CONFIG_FILE = "config.json"
 
-CLIENT_ID_FILE = "./out/plex_client_id.txt"
 new_data = defaultdict(dict)
 cache = {}
 folder_bulk_data = {}
@@ -178,50 +184,6 @@ def load_config(*, config_path):
     exit(1)
 
 
-def get_plex_client_identifier():
-    """
-    Retrieves or generates a persistent client identifier for Plex.
-    """
-    if os.path.exists(CLIENT_ID_FILE):
-        with open(CLIENT_ID_FILE, "r") as f:
-            client_id = f.read().strip()
-            logger.info(f"Using existing Plex client identifier: {client_id}")
-            return client_id
-
-    client_id = str(uuid.uuid4())
-    os.makedirs(os.path.dirname(CLIENT_ID_FILE), exist_ok=True)
-    with open(CLIENT_ID_FILE, "w") as f:
-        f.write(client_id)
-    logger.info(f"Generated and saved new Plex client identifier: {client_id}")
-    return client_id
-
-
-def create_plex_server(*, plex_url, plex_token):
-    """Creates a PlexServer instance with a persistent client identifier."""
-    try:
-        from plexapi.server import PlexServer
-
-        session = requests.Session()
-        session.headers.update(
-            {
-                "X-Plex-Product": "Scrape-Mediux",
-                "X-Plex-Client-Identifier": get_plex_client_identifier(),
-                "X-Plex-Device-Name": "Scrape-Mediux",
-                "X-Plex-Device": "Script",
-                "X-Plex-Version": "1.0",
-            }
-        )
-
-        return PlexServer(plex_url, plex_token, session=session)
-    except Exception as e:
-        logger.warning(
-            f"Could not create Plex session with custom identifier, falling back. Error: {e}"
-        )
-        from plexapi.server import PlexServer
-
-        return PlexServer(plex_url, plex_token)
-
-
 def _extract_media_info_from_subfolder(*, subfolder):
     imdb_match = re.search(r"imdb-(tt\d+)", subfolder)
     tvdb_match = re.search(r"tvdb-(\d+)", subfolder)
@@ -283,7 +245,7 @@ def get_media_ids_from_plex(plex_url: str, plex_token: str, plex_libraries: list
         )
         raise
 
-    plex = create_plex_server(plex_url=plex_url, plex_token=plex_token)
+    plex = PlexServer(plex_url, plex_token)
     media_ids = []
     folder_map = defaultdict(list)
 
@@ -351,7 +313,7 @@ def get_media_ids(
         try:
             from plexapi.server import PlexServer
 
-            plex = create_plex_server(plex_url=plex_url, plex_token=plex_token)
+            plex = PlexServer(plex_url, plex_token)
             available = [section.title for section in plex.library.sections()]
             logger.info("Available Plex libraries:")
             for lib in available:
