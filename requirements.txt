@@ -5,3 +5,4 @@ ruamel.yaml
 croniter
 tqdm
 tenacity
+plexapi

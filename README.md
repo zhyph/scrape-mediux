@@ -18,12 +18,7 @@ This script automates the process of scraping movie and TV show poster data from
 - Python >=3.9 (if running locally)
 - Docker (if running in a container)
 
-Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
-
-- [Movies](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/#plex)
-- [TV Shows](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/#optional-plex)
-
-By default, it will only process the folders with Plex naming scheme (open a feature request if you wish to add a new type).
+By default, the script will use your Plex server configuration to fetch media IDs. See the [Plex Configuration](#plex-configuration) section below.
 
 ## Installation (Local)
 
@@ -52,16 +47,23 @@ Create a `config.json` file in the root directory of the project. You can use th
 cp config.example.json config.json
 ```
 
+### Plex Configuration
+
+- `plex_url`: Your local Plex URL
+- `plex_token`: Grab a token from your Plex (check [Finding an authentication token / X-Plex-Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/) if you are not sure how to get one)
+- `plex_libraries`: At least one of your Plex Libraries (case sensitive)
+
 ### Configuration Fields
 
 ```json
 {
-  "root_folder": "/path/to/root_folder",
+  "plex_url": "http://your-plex-server:32400",
+  "plex_token": "your_plex_token",
+  "plex_libraries": ["Movies", "TV Shows"],
   "api_key": "your_tmdb_api_key",
   "username": "your_mediux_username",
   "password": "your_mediux_password",
   "nickname": "your_mediux_nickname",
-  "folders": ["folder1", "folder2"],
   "headless": true,
   "sonarr_endpoint": "your_sonarr_endpoint",
   "sonarr_api_key": "your_sonarr_api_key",
@@ -79,34 +81,15 @@ cp config.example.json config.json
 }
 ```
 
-This is how your folders should look like:
-
-```bash
-root_folder/
-├── movies/
-│   ├── The Movie Title (2010) {imdb-tt0066921}/
-│   │   └── ...
-│   └── Another Movie Title (2010) {tmdb-345691}/
-│       └── ...
-└── shows/
-    ├── The Series Title! (2010) {imdb-tt1520211}/
-    │   └── ...
-    └── Another Series Title! (2010) {tvdb-1520211}/
-        └── ...
-config_path/
-└── config.json
-```
-
-These are just examples, you can name your folders whatever you want, but the script will only process the folders that match the naming scheme. `Name {imdb-tt|tmdb|tvdb}`, anything else will be ignored.
-
 ### Field Descriptions
 
-- **`root_folder`**: The root folder containing subfolders with IMDb, TVDB or TMDB IDs. This is the directory where your media folders are located.
+- **`plex_url`**: The URL of your Plex server (required).
+- **`plex_token`**: Your Plex API token (required).
+- **`plex_libraries`**: List of Plex library names to scan (required).
 - **`api_key`**: Your TMDB API Read Access Token. You can find this in your [TMDB account settings](https://www.themoviedb.org/settings/api).
 - **`username`**: Your Mediux username used for logging into the Mediux website.
 - **`password`**: Your Mediux password used for logging into the Mediux website.
 - **`nickname`**: Your Mediux nickname, which is displayed after logging in.
-- **`folders`**: A list of specific folders to process. If left empty, all folders in the `root_folder` will be processed.
 - **`headless`**: A boolean value (`true` or `false`) to determine whether Selenium should run in headless mode. Set to `false` for debugging, but avoid minimizing or closing the browser during execution.
 - **`sonarr_endpoint`**: The endpoint URL for your Sonarr instance. This is used to check the status of TV series.
 - **`sonarr_api_key`**: The API key for your Sonarr instance, used for authentication.
@@ -132,14 +115,16 @@ python main.py --config_path /path/to/config
 
 ### Command-line Arguments (Optional)
 
-When running the script, you can ignore all the arguments, the only argument that may be used is `--config_path`, which is the path to the configuration file. The script will look for a `config.json` file in the specified directory.
+When running the script, you can ignore all the arguments except `--config_path`, which is the path to the configuration file. The script will look for a `config.json` file in the specified directory.
 
 All arguments are optional, and if not provided, the script will use the default values from the `config.json` file.
 
 If any arguments are provided, they will override the corresponding values in the `config.json` file.
 
 - `--config_path`: Directory to the configuration file, defaults to `/config`.
-- `--root_folder`: Root folder containing subfolders with IMDb, TVDB or TMDB IDs.
+- `--plex_url`: Plex server URL.
+- `--plex_token`: Plex API token.
+- `--plex_libraries`: List of Plex library names to scan.
 - `--api_key`: TMDB API Read Access Token (not API Key).
 - `--username`: Mediux username.
 - `--password`: Mediux password.
@@ -147,13 +132,12 @@ If any arguments are provided, they will override the corresponding values in th
 - `--profile_path`: Path to Chrome user profile.
 - `--sonarr_api_key`: Sonarr API key.
 - `--sonarr_endpoint`: Sonarr API endpoint.
-- `--folders`: Specific folders to search for IMDb, TVDB or TMDB IDs (optional).
 - `--headless`: Run Selenium in headless mode.
 - `--cron`: Cron expression for scheduling the script.
 - `--output_dir`: Directory to copy the output files to.
 - `--process_all`: Process all items regardless of whether they have been processed before.
 - `--chromedriver_path`: Path to the ChromeDriver executable.
-- `--retry_on_yaml_failure`: Retry by reloading the page if the YAML button exists but an error occurs. If ommitted, the script will not retry.
+- `--retry_on_yaml_failure`: Retry by reloading the page if the YAML button exists but an error occurs. If omitted, the script will not retry.
 - `--preferred_users`: List of Mediux usernames to prioritize when fetching YAML data.
 - `--excluded_users`: List of Mediux usernames to exclude when fetching YAML data.
 - `--discord_webhook_url`: Discord webhook URL for notifications.
@@ -179,7 +163,6 @@ services:
       - TZ=Etc/UTC # Set your timezone
       - LOG_LEVEL=info # Set the log level (debug, info, warning, error), can be omitted
     volumes:
-      - /path/to/media:/data # REQUIRED, root_folder in config.json (or args) must match this
       - /path/to/config:/config # REQUIRED
       - /path/to/config/cache:/app/out # RECOMMENDED, if you don't bind this, the cache will be stored in the container and can easily be lost
       - /path/to/config/profile:/profile # RECOMMENDED, must match profile_path in config.json, if you don't bind this, the profile can be removed and you will need to login again (which is not a big deal, but it will take longer)
@@ -207,3 +190,43 @@ services:
    ```bash
    docker exec -it scrape-mediux python main.py --cron ''
    ```
+
+---
+
+## Advanced/Legacy: Using `root_folder` and `folders`
+
+While the recommended and default method is to use your Plex server configuration, you can still use the legacy folder-based scan by specifying the `root_folder` field in your `config.json` and omitting the Plex fields. This is useful for advanced scenarios or if you do not use Plex.
+
+**Example:**
+
+```json
+{
+  "root_folder": "/path/to/root_folder",
+  "folders": ["folder1", "folder2"], // Optional: only scan these subfolders
+  "api_key": "your_tmdb_api_key",
+  "username": "your_mediux_username",
+  "password": "your_mediux_password",
+  "nickname": "your_mediux_nickname",
+  ...
+}
+```
+
+- The script will scan subfolders in `root_folder` for media IDs using the supported naming scheme.
+- If the `folders` property is provided, only those subfolders will be processed; otherwise, all subfolders will be scanned.
+- If both Plex and `root_folder` are provided, Plex will take priority unless `plex_libraries` is missing, in which case the script will warn and use `root_folder`.
+
+**Docker Compose for root_folder mode:**
+
+If you use the legacy `root_folder` mode, you must also mount your media directory into the container. Add a volume like this to your `docker-compose.yml`:
+
+```yaml
+volumes:
+  - /path/to/media:/data # REQUIRED for root_folder mode, must match root_folder in config.json
+```
+
+**Note:**
+
+- This mode is intended for advanced or legacy use only and may not support all features available with Plex integration.
+- Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
+  - [Movies](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/#plex)
+  - [TV Shows](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/#optional-plex)
