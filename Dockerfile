@@ -23,6 +23,7 @@ RUN apk add --no-cache \
 COPY --from=builder /opt/venv /opt/venv
 
 COPY main.py .
+COPY modules/ ./modules/
 COPY config.example.json .
 
 ENV PATH="/opt/venv/bin:$PATH"

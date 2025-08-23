@@ -6,3 +6,4 @@ croniter
 tqdm
 tenacity
 plexapi
+colorama
