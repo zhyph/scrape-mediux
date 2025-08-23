@@ -103,7 +103,8 @@ cp config.example.json config.json
   "preferred_users": ["User1", "User2"],
   "excluded_users": ["UserToIgnore1", "UserToIgnore2"],
   "discord_webhook_url": "your_discord_webhook_url",
-  "disable_season_fix": false
+  "disable_season_fix": false,
+  "remove_paths": []
 }
 ```
 
