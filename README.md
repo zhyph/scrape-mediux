@@ -81,6 +81,9 @@ cp config.example.json config.json
 
 ### Configuration Fields
 
+<details>
+<summary>Click to expand configuration details</summary>
+
 ```json
 {
   "plex_url": "http://your-plex-server:32400",
@@ -108,7 +111,7 @@ cp config.example.json config.json
 }
 ```
 
-### Field Descriptions
+#### Field Descriptions
 
 - **`plex_url`**: The URL of your Plex server (required).
 - **`plex_token`**: Your Plex API token (required).
@@ -133,7 +136,12 @@ cp config.example.json config.json
 - **`disable_season_fix`**: A boolean value (`true` or `false`) to disable the automatic fix for malformed seasons YAML structure in TV shows. When set to `true`, the script will not attempt to fix structural issues where multiple 'episodes:' blocks appear directly under 'seasons:'. Defaults to `false` (automatic fix enabled).
 - **`remove_paths`**: List of YAML field path patterns to remove from the output. Supports wildcard matching with `*`. Examples: `["*.url_background", "seasons.*.url_poster"]`. Defaults to `[]` (no filtering).
 
+</details>
+
 ## YAML Field Filtering
+
+<details>
+<summary>Click to expand YAML field filtering details</summary>
 
 The script supports advanced YAML field filtering to selectively remove unwanted fields from the output data. This feature uses path-based pattern matching with wildcard support.
 
@@ -178,6 +186,8 @@ python main.py --remove_paths "*.url_background" "seasons.*.url_poster"
 ### Important Notes
 
 - **Comment Preservation**: When using `--remove_paths`, some YAML comments may be lost due to the technical nature of parsing and filtering YAML data. For maximum comment preservation, avoid using the filtering feature.
+
+</details>
 
 ## Usage (Local)
 
@@ -225,6 +235,9 @@ You can run the scraper using Docker. A prebuilt image is available on Docker Hu
 
 ### Docker Compose
 
+<details>
+<summary>Click to expand Docker Compose details</summary>
+
 It's recommended to use this script with cron when running in Docker. (Just modify the `cron` field in the `config.json` file to your desired schedule.)
 
 Here’s an example `docker-compose.yml` file (also available in the repository):
@@ -266,9 +279,14 @@ services:
    docker exec -it scrape-mediux python main.py --cron ''
    ```
 
+</details>
+
 ---
 
 ## Legacy Use
+
+<details>
+<summary>Click to expand legacy use details</summary>
 
 While the recommended and default method is to use your Plex server configuration, you can still use the legacy folder-based scan by specifying the `root_folder` field in your `config.json` and omitting the Plex fields. This is useful for advanced scenarios or if you do not use Plex.
 
@@ -305,3 +323,5 @@ volumes:
 - Follow the **Recommended naming scheme** from [TRaSH Guides](https://trash-guides.info/), use the following naming scheme for your folders:
   - [Movies](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/#plex)
   - [TV Shows](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/#optional-plex)
+
+</details>
