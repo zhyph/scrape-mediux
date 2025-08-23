@@ -80,6 +80,150 @@ def to_standard_dict(*, item):
         return item
 
 
+def filter_yaml_data_by_paths(*, yaml_data, remove_paths=None):
+    """
+    Filter YAML data by removing specified fields using path patterns.
+
+    Args:
+        yaml_data: Parsed YAML data (dict)
+        remove_paths: List of field path patterns to remove (others are kept)
+
+    Returns:
+        Filtered YAML data
+    """
+    if not yaml_data or not isinstance(yaml_data, dict):
+        return yaml_data
+
+    if not remove_paths:
+        return yaml_data
+
+    logger.debug(f"Filtering YAML data with remove_paths: {remove_paths}")
+
+    def matches_path_pattern(current_path, pattern):
+        """
+        Check if a path matches a pattern with wildcards.
+        Supports both absolute paths (with dots) and basic field names.
+
+        Args:
+            current_path: List of keys representing the current path
+            pattern: Pattern string with wildcards (e.g., "seasons.*.episodes.*.url_poster" or just "url_poster")
+
+        Returns:
+            True if the path matches the pattern
+        """
+        pattern_parts = pattern.split(".")
+        path_parts = [str(p) for p in current_path]
+
+        # If pattern is longer than path, no match
+        if len(pattern_parts) > len(path_parts):
+            return False
+
+        # For basic field names (no dots), be more selective about matching
+        if len(pattern_parts) == 1 and "." not in pattern:
+            field_name = pattern_parts[0]
+            # Only match if the last part of the path equals the pattern
+            if path_parts[-1] != field_name:
+                return False
+
+            # For basic field patterns, don't match fields that are inside episodes
+            # This prevents episodes from becoming empty when they only contain url_poster
+            if len(path_parts) >= 4:
+                # Check if we're inside an episodes section
+                for i in range(len(path_parts) - 3):
+                    if path_parts[i] == "seasons" and path_parts[i + 2] == "episodes":
+                        # This is an episode-level field - don't match basic field patterns
+                        return False
+
+            return True
+
+        # For dotted patterns, try to match at every possible starting position in the path
+        for start_pos in range(len(path_parts) - len(pattern_parts) + 1):
+            matches = True
+            for i, pattern_part in enumerate(pattern_parts):
+                path_part = path_parts[start_pos + i]
+                if pattern_part != "*" and pattern_part != path_part:
+                    matches = False
+                    break
+            if matches:
+                return True
+
+        return False
+
+    def should_remove_path(current_path):
+        """Determine if a path should be removed based on remove_paths patterns."""
+        if not remove_paths:
+            return False
+
+        path_str = ".".join(str(p) for p in current_path)
+        logger.debug(f"Checking path: {path_str}")
+
+        for pattern in remove_paths:
+            if matches_path_pattern(current_path, pattern):
+                logger.debug(f"  Path {path_str} matches pattern {pattern}")
+                return True
+            else:
+                logger.debug(f"  Path {path_str} does NOT match pattern {pattern}")
+
+        return False
+
+    def apply_remove_filtering(data, current_path=[]):
+        """Apply remove_paths filtering (traditional approach)."""
+
+        def filter_recursive(obj, path):
+            if isinstance(obj, dict):
+                filtered_dict = {}
+                for key, value in obj.items():
+                    new_path = path + [key]
+                    # Check if this field (key) should be removed
+                    field_should_be_removed = should_remove_path(new_path)
+
+                    if not field_should_be_removed:
+                        if isinstance(value, (dict, list)):
+                            filtered_value = filter_recursive(value, new_path)
+                            # Always preserve structure by adding the key, even if empty
+                            if filtered_value is not None:
+                                filtered_dict[key] = filtered_value
+                        else:
+                            # For leaf values, add them directly since we've already checked the key path
+                            filtered_dict[key] = value
+                # Return the dictionary even if it's empty, to preserve structure
+                return filtered_dict
+            elif isinstance(obj, list):
+                filtered_list = []
+                for i, item in enumerate(obj):
+                    new_path = path + [i]
+                    if not should_remove_path(new_path):
+                        if isinstance(item, (dict, list)):
+                            filtered_item = filter_recursive(item, new_path)
+                            if filtered_item is not None:
+                                filtered_list.append(filtered_item)
+                        else:
+                            # For list items, check if the item should be removed
+                            if not should_remove_path(new_path):
+                                filtered_list.append(item)
+                # Return the list even if it's empty, to preserve structure
+                return filtered_list
+            else:
+                return obj
+
+        return filter_recursive(data, current_path)
+
+    filtered_data = {}
+    for media_id, content in yaml_data.items():
+        if remove_paths:
+            # For remove_paths: use filtering to remove specified paths
+            filtered_content = apply_remove_filtering(content, [str(media_id)])
+            if filtered_content is not None:
+                filtered_data[media_id] = filtered_content
+
+    if remove_paths:
+        logger.info(
+            f"YAML filtering applied - removing paths: {', '.join(remove_paths)}"
+        )
+
+    return filtered_data if filtered_data else yaml_data
+
+
 def init_driver(*, headless=True, profile_path=None, chromedriver_path=None):
     logger.info("Initializing WebDriver...")
     options = Options()
@@ -1116,7 +1260,6 @@ def _fetch_tv_series_details(
     tmdb_id,
     external_source_id,
     external_source_type,
-    logger,
 ):
     tvdb_id, ended = None, None
     try:
@@ -1150,7 +1293,6 @@ def _get_existing_yaml_details(
     tvdb_id_for_tv,
     folder_map,
     folder_bulk_data,
-    logger,
 ):
     old_parsed_yaml_content = None
     is_already_in_yaml = False
@@ -1189,7 +1331,6 @@ def _should_skip_scraping(
     ended_status,
     is_in_yaml,
     process_all_flag,
-    logger,
 ):
     if is_in_yaml and not process_all_flag:
         if media_type == "tv":
@@ -1218,7 +1359,7 @@ def _extract_comparable_content_from_scraped_yaml(
     tmdb_id,
     tvdb_id_for_tv,
     yaml_parser,
-    logger,
+    remove_paths=None,
 ):
     if not raw_yaml_data:
         return None
@@ -1231,6 +1372,18 @@ def _extract_comparable_content_from_scraped_yaml(
             return None
 
         parsed_wrapper = {str(k): v for k, v in parsed_wrapper.items()}
+
+        # Apply filtering if specified
+        if remove_paths:
+            parsed_wrapper = filter_yaml_data_by_paths(
+                yaml_data=parsed_wrapper,
+                remove_paths=remove_paths,
+            )
+            if not parsed_wrapper:
+                logger.warning(
+                    f"Filtering removed all content for '{media_name}' (TMDB: {tmdb_id})"
+                )
+                return None
 
         expected_key = str(tvdb_id_for_tv if media_type == "tv" else tmdb_id)
 
@@ -1261,7 +1414,6 @@ def _compare_yaml_and_log_changes(
     id_for_logging,
     old_content,
     new_content_to_compare,
-    logger,
 ):
     if new_content_to_compare is None:
         logger.warning(
@@ -1291,7 +1443,7 @@ def _compare_yaml_and_log_changes(
         return False
 
 
-def _preprocess_yaml_string(*, yaml_string: str, logger) -> tuple[str, bool]:
+def _preprocess_yaml_string(*, yaml_string: str) -> tuple[str, bool]:
     """
     Pre-processes a raw YAML string to fix structural issues where multiple
     'episodes:' blocks appear directly under 'seasons:'. This is invalid YAML.
@@ -1353,6 +1505,7 @@ def _process_single_media_item(
     fixed_titles_list,
     disable_season_fix=False,
     media_type_from_plex=None,
+    remove_paths=None,
 ):
     global cache, new_data, folder_bulk_data, yaml
 
@@ -1407,7 +1560,6 @@ def _process_single_media_item(
             tmdb_id=tmdb_id,
             external_source_id=media_id_from_folder,
             external_source_type=external_source_type,
-            logger=logger,
         )
 
     old_yaml_content, is_already_in_yaml, key_for_log = _get_existing_yaml_details(
@@ -1417,7 +1569,6 @@ def _process_single_media_item(
         tvdb_id_for_tv=tvdb_id_for_tv,
         folder_map=folder_map_for_media,
         folder_bulk_data=folder_bulk_data,
-        logger=logger,
     )
 
     if _should_skip_scraping(
@@ -1428,7 +1579,6 @@ def _process_single_media_item(
         ended_status=ended_status,
         is_in_yaml=is_already_in_yaml,
         process_all_flag=process_all,
-        logger=logger,
     ):
         return
 
@@ -1488,7 +1638,7 @@ def _process_single_media_item(
 
         if is_malformed and not disable_season_fix:
             new_raw_yaml, was_fixed = _preprocess_yaml_string(
-                yaml_string=new_raw_yaml, logger=logger
+                yaml_string=new_raw_yaml,
             )
             if was_fixed:
                 logger.info(f"YAML for '{media_name}' was successfully fixed.")
@@ -1505,34 +1655,103 @@ def _process_single_media_item(
                 f"Malformed YAML detected for '{media_name}' but automatic fix is disabled."
             )
 
-    new_comparable_content = _extract_comparable_content_from_scraped_yaml(
-        raw_yaml_data=new_raw_yaml,
-        media_name=media_name,
-        media_type=media_type,
-        tmdb_id=tmdb_id,
-        tvdb_id_for_tv=tvdb_id_for_tv,
-        yaml_parser=yaml,
-        logger=logger,
-    )
+    # Apply filtering while preserving YAML structure and comments
+    final_yaml_data = new_raw_yaml
+    new_comparable_content = None
 
-    if media_type == "tv" and new_comparable_content:
+    if remove_paths:
         try:
-            parsed_yaml_data = yaml.load(new_raw_yaml)
-            from io import StringIO
+            # Load YAML while preserving comments and structure
+            parsed_yaml = yaml.load(new_raw_yaml)
 
-            string_stream = StringIO()
-            yaml.dump(parsed_yaml_data, string_stream)
-            new_raw_yaml = string_stream.getvalue()
+            if parsed_yaml and isinstance(parsed_yaml, dict):
+                # Apply filtering to the parsed data
+                filtered_yaml = filter_yaml_data_by_paths(
+                    yaml_data=parsed_yaml,
+                    remove_paths=remove_paths,
+                )
 
+                if filtered_yaml:
+                    from io import StringIO
+                    string_stream = StringIO()
+                    # Use the comment-preserving YAML dumper
+                    yaml.dump(filtered_yaml, string_stream)
+                    final_yaml_data = string_stream.getvalue()
+
+                    # Clean up empty objects in the YAML output while preserving comments
+                    import re
+                    # Replace empty objects {} with nothing (preserving indentation and comments)
+                    final_yaml_data = re.sub(r'(\s+)([^:\n]+):\s*\{\}', r'\1\2:', final_yaml_data)
+
+                    # Extract comparable content from the filtered data
+                    new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+                        raw_yaml_data=final_yaml_data,
+                        media_name=media_name,
+                        media_type=media_type,
+                        tmdb_id=tmdb_id,
+                        tvdb_id_for_tv=tvdb_id_for_tv,
+                        yaml_parser=yaml,
+                        remove_paths=None,  # Don't filter again
+                    )
+                else:
+                    # If filtering results in no data, keep the original structure
+                    final_yaml_data = new_raw_yaml
+                    logger.warning(
+                        f"Filtering resulted in empty YAML for '{media_name}' (TMDB: {tmdb_id}), keeping original"
+                    )
+                    new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+                        raw_yaml_data=final_yaml_data,
+                        media_name=media_name,
+                        media_type=media_type,
+                        tmdb_id=tmdb_id,
+                        tvdb_id_for_tv=tvdb_id_for_tv,
+                        yaml_parser=yaml,
+                        remove_paths=None,
+                    )
+            else:
+                new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+                    raw_yaml_data=final_yaml_data,
+                    media_name=media_name,
+                    media_type=media_type,
+                    tmdb_id=tmdb_id,
+                    tvdb_id_for_tv=tvdb_id_for_tv,
+                    yaml_parser=yaml,
+                    remove_paths=None,
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to filter YAML for '{media_name}' (TMDB: {tmdb_id}): {e}"
+            )
+            final_yaml_data = new_raw_yaml
             new_comparable_content = _extract_comparable_content_from_scraped_yaml(
-                raw_yaml_data=new_raw_yaml,
+                raw_yaml_data=final_yaml_data,
                 media_name=media_name,
                 media_type=media_type,
                 tmdb_id=tmdb_id,
                 tvdb_id_for_tv=tvdb_id_for_tv,
                 yaml_parser=yaml,
-                logger=logger,
+                remove_paths=None,
             )
+    else:
+        new_comparable_content = _extract_comparable_content_from_scraped_yaml(
+            raw_yaml_data=final_yaml_data,
+            media_name=media_name,
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            tvdb_id_for_tv=tvdb_id_for_tv,
+            yaml_parser=yaml,
+            remove_paths=None,
+        )
+
+    if media_type == "tv" and new_comparable_content:
+        try:
+            # Re-process the final YAML to ensure consistency for TV shows
+            parsed_yaml_data = yaml.load(final_yaml_data)
+            from io import StringIO
+
+            string_stream = StringIO()
+            yaml.dump(parsed_yaml_data, string_stream)
+            final_yaml_data = string_stream.getvalue()
         except Exception as e:
             logger.error(f"Failed to re-process TV YAML for '{media_name}': {e}")
 
@@ -1546,7 +1765,6 @@ def _process_single_media_item(
         id_for_logging=id_for_comp_log,
         old_content=old_yaml_content,
         new_content_to_compare=new_comparable_content,
-        logger=logger,
     )
 
     if title_should_be_updated_flag:
@@ -1558,7 +1776,7 @@ def _process_single_media_item(
         updated_titles_list.append(f"{media_name} ({log_id_str})")
 
     for folder_name in folder_map_for_media.get(media_id_from_folder, []):
-        new_data[folder_name][tmdb_id] = new_raw_yaml
+        new_data[folder_name][tmdb_id] = final_yaml_data
 
 
 def _initialize_and_login_driver(
@@ -1607,6 +1825,7 @@ def run(
     preferred_users=None,
     excluded_users=None,
     disable_season_fix=False,
+    remove_paths=None,
 ):
     global cache, new_data, folder_bulk_data, root_folder_global
     logger.info("Starting Mediux scraper...")
@@ -1615,6 +1834,13 @@ def run(
         logger.info(f"Preferred users configured: {', '.join(preferred_users)}")
     if excluded_users:
         logger.info(f"Excluded users configured: {', '.join(excluded_users)}")
+
+    if remove_paths:
+        logger.info(
+            f"YAML filtering enabled - removing paths: {', '.join(remove_paths)}"
+        )
+    if remove_paths:
+        logger.info("YAML data will be filtered after scraping")
 
     validate_path(path=root_folder_global, description="Root folder")
     logger.info(f"Processing media from: {root_folder_global}")
@@ -1696,6 +1922,7 @@ def run(
                         updated_titles_list=updated_titles_list,
                         fixed_titles_list=fixed_titles_list,
                         disable_season_fix=disable_season_fix,
+                        remove_paths=remove_paths,
                     )
                 except (ReadTimeoutError, TimeoutException):
                     logger.error(
@@ -1822,7 +2049,7 @@ def _resolve_config_value_helper(
 
 def _parse_arguments_and_load_config():
     parser = argparse.ArgumentParser(
-        description="Scrape Mediux and create bulk data file."
+        description="Scrape Mediux and create bulk data file with optional YAML field filtering."
     )
     parser.add_argument(
         "--config_path",
@@ -1893,6 +2120,11 @@ def _parse_arguments_and_load_config():
         "--disable_season_fix",
         action="store_true",
         help="Disable automatic fix for malformed seasons YAML structure",
+    )
+    parser.add_argument(
+        "--remove_paths",
+        nargs="*",
+        help="List of YAML field paths to remove (others will be kept). Use dot notation with wildcards. Examples: *.url_background, seasons.*.url_poster. Note: *.field matches all instances, use specific paths for selective removal. WARNING: Some YAML comments may be lost when filtering is applied.",
     )
     parser.add_argument(
         "--plex_url",
@@ -2082,6 +2314,14 @@ def _parse_arguments_and_load_config():
             default_val=False,
             is_bool=True,
         ),
+        "remove_paths": _resolve_config_value_helper(
+            arg_val=args.remove_paths,
+            env_var_name="REMOVE_PATHS",
+            conf_key="remove_paths",
+            file_config=file_config,
+            is_list=True,
+            default_val=[],
+        ),
     }
     return app_config
 
@@ -2135,6 +2375,7 @@ if __name__ == "__main__":
             "preferred_users": app_settings["preferred_users"],
             "excluded_users": app_settings["excluded_users"],
             "disable_season_fix": app_settings["disable_season_fix"],
+            "remove_paths": app_settings["remove_paths"],
         }
         if app_settings["cron_expression"]:
             schedule_run(

@@ -19,5 +19,6 @@
   "preferred_users": [],
   "excluded_users": [],
   "discord_webhook_url": "",
-  "disable_season_fix": false
+  "disable_season_fix": false,
+  "remove_paths": []
 }

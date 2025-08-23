@@ -1,5 +1,30 @@
 # Mediux Poster Scraper
 
+<!--toc:start-->
+
+- [Mediux Poster Scraper](#mediux-poster-scraper)
+  - [Features](#features)
+  - [Requirements](#requirements)
+  - [Installation (Local)](#installation-local)
+  - [Configuration](#configuration)
+    - [Copy Example Configuration](#copy-example-configuration)
+    - [Plex Configuration](#plex-configuration)
+    - [Configuration Fields](#configuration-fields)
+    - [Field Descriptions](#field-descriptions)
+  - [YAML Field Filtering](#yaml-field-filtering)
+    - [How It Works](#how-it-works)
+    - [Filtering Examples](#filtering-examples)
+    - [Pattern Matching Rules](#pattern-matching-rules)
+    - [Use Cases](#use-cases)
+    - [Important Notes](#important-notes)
+  - [Usage (Local)](#usage-local)
+    - [Command-line Arguments (Optional)](#command-line-arguments-optional)
+  - [Usage (Docker)](#usage-docker)
+    - [Docker Compose](#docker-compose)
+    - [Running with Docker Compose](#running-with-docker-compose)
+  - [Legacy Use](#legacy-use)
+  <!--toc:end-->
+
 This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb, TVDB or TMDB IDs to find corresponding movies/shows. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
 
 ## Features
@@ -12,6 +37,7 @@ This script automates the process of scraping movie and TV show poster data from
 - **Outputs files for kometa and plex-poster-set-helper**
   - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your Plex library.
   - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your Plex library. For more information, check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux).
+- **YAML field filtering** with path-based pattern matching to selectively remove unwanted fields from the output.
 
 ## Requirements
 
@@ -104,6 +130,53 @@ cp config.example.json config.json
 - **`excluded_users`**: A list of Mediux usernames to ignore when fetching YAML data. The script will not use YAML buttons from any user in this list. (CASE SENSITIVE)
 - **`discord_webhook_url`**: The URL for a Discord webhook. If provided, the script will send a notification listing newly processed or updated titles to this webhook.
 - **`disable_season_fix`**: A boolean value (`true` or `false`) to disable the automatic fix for malformed seasons YAML structure in TV shows. When set to `true`, the script will not attempt to fix structural issues where multiple 'episodes:' blocks appear directly under 'seasons:'. Defaults to `false` (automatic fix enabled).
+- **`remove_paths`**: List of YAML field path patterns to remove from the output. Supports wildcard matching with `*`. Examples: `["*.url_background", "seasons.*.url_poster"]`. Defaults to `[]` (no filtering).
+
+## YAML Field Filtering
+
+The script supports advanced YAML field filtering to selectively remove unwanted fields from the output data. This feature uses path-based pattern matching with wildcard support.
+
+### How It Works
+
+The filtering system allows you to specify patterns for fields you want to remove from the scraped YAML data. It supports:
+
+- **Basic field names**: Remove fields at specific levels (e.g., `url_poster`)
+- **Path patterns**: Remove fields using dot notation with wildcards (e.g., `seasons.*.url_poster`)
+- **Wildcard matching**: Use `*` to match any value at a specific level
+
+### Filtering Examples
+
+```bash
+# Remove all url_background fields globally
+python main.py --remove_paths "*.url_background"
+
+# Remove season-level url_poster fields only
+python main.py --remove_paths "seasons.*.url_poster"
+
+# Remove episode-level url_poster fields only (use full path)
+python main.py --remove_paths "seasons.*.episodes.*.url_poster"
+
+# Remove multiple field types
+python main.py --remove_paths "*.url_background" "seasons.*.url_poster"
+```
+
+### Pattern Matching Rules
+
+- **Basic patterns** (like `url_poster`): Only removes fields at the root and season levels to preserve episode structure
+- **Path patterns** (like `seasons.*.episodes.*.url_poster`): Removes fields matching the exact path pattern
+- **Wildcard `*`**: Matches any value at that level in the hierarchy
+- **Dot notation**: Navigate through nested YAML structure
+
+### Use Cases
+
+- **Remove background images**: `"*.url_background"` removes all background image URLs
+- **Clean season data**: `"seasons.*.url_poster"` removes season poster URLs while keeping episode posters
+- **Selective filtering**: Combine multiple patterns to remove different field types
+- **Preserve structure**: Basic field names preserve episode structure by not removing episode-level fields
+
+### Important Notes
+
+- **Comment Preservation**: When using `--remove_paths`, some YAML comments may be lost due to the technical nature of parsing and filtering YAML data. For maximum comment preservation, avoid using the filtering feature.
 
 ## Usage (Local)
 
@@ -143,6 +216,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--discord_webhook_url`: Discord webhook URL for notifications.
 - `--copy_only`: Only copy files to the output_dir and exit. This option skips the scraping process and only performs the file copying operation.
 - `--disable_season_fix`: Disable automatic fix for malformed seasons YAML structure in TV shows. When enabled, the script will not attempt to automatically correct structural issues in YAML.
+- `--remove_paths`: List of YAML field path patterns to remove from the output. Supports wildcard matching with `*`. Examples: `"*.url_background" "seasons.*.url_poster"`. Note: Basic field names (like `url_poster`) only remove fields at the root and season levels to preserve episode structure.
 
 ## Usage (Docker)
 
@@ -193,7 +267,7 @@ services:
 
 ---
 
-## Advanced/Legacy: Using `root_folder` and `folders`
+## Legacy Use
 
 While the recommended and default method is to use your Plex server configuration, you can still use the legacy folder-based scan by specifying the `root_folder` field in your `config.json` and omitting the Plex fields. This is useful for advanced scenarios or if you do not use Plex.
 
