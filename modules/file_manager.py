@@ -15,6 +15,10 @@ from ruamel import yaml
 
 logger = logging.getLogger(__name__)
 
+# Global YAML parser instance with duplicate keys allowed
+yaml_parser = yaml.YAML()
+yaml_parser.allow_duplicate_keys = True
+
 
 class CacheManager:
     """Manages TMDB API cache operations."""
@@ -67,8 +71,7 @@ class BulkDataManager:
     """Manages bulk data file operations."""
 
     def __init__(self):
-        self.yaml = yaml.YAML()
-        self.yaml.allow_duplicate_keys = True
+        self.yaml = yaml_parser
         self.logger = logging.getLogger(__name__)
 
     def load_bulk_data(
@@ -127,8 +130,7 @@ class FileWriter:
     """Handles writing data to files and managing output directories."""
 
     def __init__(self):
-        self.yaml = yaml.YAML()
-        self.yaml.allow_duplicate_keys = True
+        self.yaml = yaml_parser
         self.logger = logging.getLogger(__name__)
 
     def _collect_existing_urls(

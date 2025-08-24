@@ -45,13 +45,11 @@ class YAMLDataFilter:
             if path_parts[-1] != field_name:
                 return False
 
-            # For basic field patterns, don't match fields that are inside episodes
-            if len(path_parts) >= 4:
-                # Check if we're inside an episodes section
-                for i in range(len(path_parts) - 3):
-                    if path_parts[i] == "seasons" and path_parts[i + 2] == "episodes":
-                        # This is an episode-level field - don't match basic field patterns
-                        return False
+            # For basic field patterns, only match top-level fields (directly under media ID)
+            # Don't match fields that are nested deeper in structures like seasons or episodes
+            if len(path_parts) != 2:
+                # This field is nested deeper than the top level - don't match basic field patterns
+                return False
 
             return True
 
@@ -88,7 +86,8 @@ class YAMLDataFilter:
         self.logger.debug(f"Checking path: {path_str}")
 
         for pattern in remove_paths:
-            if self._matches_path_pattern(current_path, pattern):
+            matches = self._matches_path_pattern(current_path, pattern)
+            if matches:
                 self.logger.debug(f"  Path {path_str} matches pattern {pattern}")
                 return True
             else:
@@ -127,17 +126,50 @@ class YAMLDataFilter:
                     field_should_be_removed = self._should_remove_path(
                         new_path, remove_paths
                     )
-
                     if not field_should_be_removed:
                         if isinstance(value, (dict, list)):
                             filtered_value = filter_recursive(value, new_path)
-                            # Always preserve structure by adding the key, even if empty
-                            if filtered_value is not None:
+                            # Only add the key if the filtered value is not None and not empty
+                            if filtered_value is not None and not (isinstance(filtered_value, dict) and len(filtered_value) == 0):
                                 filtered_dict[key] = filtered_value
                         else:
                             # For leaf values, add them directly since we've already checked the key path
                             filtered_dict[key] = value
-                # Return the dictionary even if it's empty, to preserve structure
+                # Handle empty structures intelligently for Kometa compatibility
+                if not filtered_dict:
+                    # Check if this is the seasons section - convert to empty list for Kometa
+                    if path and len(path) >= 1 and path[-1] == "seasons":
+                        # Convert empty seasons dict to empty list to avoid iteration errors
+                        return []
+
+                    # Check if this is a structural element that should be preserved
+                    if path and len(path) >= 2:
+                        parent_key = path[-2] if len(path) >= 2 else None
+                        if parent_key == "seasons":
+                            # This is a season entry - preserve it even if empty
+                            return {}
+                        elif path[-1].isdigit() and len(path) >= 3 and path[-3] == "seasons":
+                            # This is a season number - preserve it even if empty
+                            return {}
+                        elif parent_key == "episodes":
+                            # This is an episode entry - preserve it even if empty
+                            return {}
+
+                    # Check if we're at the top level (media ID level)
+                    if len(path) == 1:
+                        # At the top level, mark as filtered empty
+                        return {"_filtered_empty_": True}
+
+                    # For other cases, return empty dict to preserve structure
+                    return {}
+
+                # Check if this is the seasons section and all its children are empty
+                if path and len(path) >= 1 and path[-1] == "seasons":
+                    # Check if all values in the seasons dict are empty
+                    if all(isinstance(v, dict) and len(v) == 0 for v in filtered_dict.values()):
+                        # All season entries are empty - convert to empty list for Kometa compatibility
+                        return []
+
                 return filtered_dict
             elif isinstance(obj, list):
                 filtered_list = []
@@ -146,13 +178,24 @@ class YAMLDataFilter:
                     if not self._should_remove_path(new_path, remove_paths):
                         if isinstance(item, (dict, list)):
                             filtered_item = filter_recursive(item, new_path)
-                            if filtered_item is not None:
+                            if filtered_item is not None and not (isinstance(filtered_item, dict) and len(filtered_item) == 0):
                                 filtered_list.append(filtered_item)
                         else:
                             # For list items, check if the item should be removed
                             if not self._should_remove_path(new_path, remove_paths):
                                 filtered_list.append(item)
-                # Return the list even if it's empty, to preserve structure
+
+                # For lists, preserve them even if they're empty to maintain structure
+                # Only mark as filtered empty if we're at the top level
+                if not filtered_list:
+                    # Check if we're at the top level (media ID level)
+                    if len(path) == 1:
+                        # At the top level, mark as filtered empty
+                        return {"_filtered_empty_": True}
+
+                    # For other cases, return empty list to preserve structure
+                    return []
+
                 return filtered_list
             else:
                 return obj
@@ -340,10 +383,15 @@ class DataComparisonEngine:
                     yaml_data=parsed_wrapper,
                     remove_paths=remove_paths,
                 )
-                if not parsed_wrapper:
-                    self.logger.warning(
-                        f"Filtering removed all content for '{media_name}' (TMDB: {tmdb_id})"
-                    )
+                if not parsed_wrapper or (isinstance(parsed_wrapper, dict) and len(parsed_wrapper) == 1 and parsed_wrapper.get("_filtered_empty_")):
+                    if isinstance(parsed_wrapper, dict) and parsed_wrapper.get("_filtered_empty_"):
+                        self.logger.info(
+                            f"Filtering resulted in empty structure for '{media_name}' (TMDB: {tmdb_id}) - marked as filtered empty"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"Filtering removed all content for '{media_name}' (TMDB: {tmdb_id})"
+                        )
                     return None
 
             expected_key = str(tvdb_id_for_tv if media_type == "tv" else tmdb_id)

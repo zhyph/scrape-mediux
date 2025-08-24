@@ -49,6 +49,10 @@ discord_webhook_url_global = None
 
 logger = logging.getLogger(__name__)
 
+# Global YAML parser instance with duplicate keys allowed
+yaml_parser = yaml.YAML()
+yaml_parser.allow_duplicate_keys = True
+
 # Set up basic environment configuration
 os.environ["PLEXAPI_HEADER_IDENTIFIER"] = uuid.uuid3(
     uuid.NAMESPACE_DNS, "Scrape-Mediux"
@@ -359,9 +363,7 @@ def _process_single_media_item(
     if media_type == "tv":
         is_malformed = False
         try:
-            yaml_check_parser = yaml.YAML()
-            yaml_check_parser.allow_duplicate_keys = True
-            parsed_for_check = yaml_check_parser.load(new_raw_yaml)
+            parsed_for_check = yaml_parser.load(new_raw_yaml)
 
             if parsed_for_check and isinstance(parsed_for_check, dict):
                 media_id_key = next(iter(parsed_for_check))
@@ -416,9 +418,7 @@ def _process_single_media_item(
 
     if remove_paths:
         try:
-            parsed_yaml = yaml.YAML()
-            parsed_yaml.allow_duplicate_keys = True
-            parsed_yaml = parsed_yaml.load(new_raw_yaml)
+            parsed_yaml = yaml_parser.load(new_raw_yaml)
 
             if parsed_yaml and isinstance(parsed_yaml, dict):
                 filter_engine = YAMLDataFilter()
@@ -428,29 +428,43 @@ def _process_single_media_item(
                 )
 
                 if filtered_yaml:
-                    string_stream = StringIO()
-                    yaml_dumper = yaml.YAML()
-                    yaml_dumper.allow_duplicate_keys = True
-                    yaml_dumper.dump(filtered_yaml, string_stream)
-                    final_yaml_data = string_stream.getvalue()
-
-                    import re
-
-                    final_yaml_data = re.sub(
-                        r"(\s+)([^:\n]+):\s*\{\}", r"\1\2:", final_yaml_data
+                    # Check if the filtered result is marked as filtered empty
+                    is_filtered_empty = (
+                        isinstance(filtered_yaml, dict) and
+                        len(filtered_yaml) == 1 and
+                        filtered_yaml.get("_filtered_empty_") is True
                     )
 
-                    new_comparable_content = (
-                        comparison_engine.extract_comparable_content_from_scraped_yaml(
-                            raw_yaml_data=final_yaml_data,
-                            media_name=media_name,
-                            media_type=media_type,
-                            tmdb_id=tmdb_id,
-                            tvdb_id_for_tv=tvdb_id_for_tv,
-                            yaml_parser=yaml.YAML(),
-                            remove_paths=None,
+                    if is_filtered_empty:
+                        # Handle filtered empty case - create recognizable empty structure
+                        media_id_key = next(iter(parsed_yaml.keys()))
+                        final_yaml_data = f"# Filtered empty by remove_paths\n{media_id_key}:"
+                        logger.info(
+                            f"Filtering resulted in empty structure for '{media_name}' (TMDB: {tmdb_id}) - marked as filtered empty"
                         )
-                    )
+                        new_comparable_content = None
+                    else:
+                        string_stream = StringIO()
+                        yaml_parser.dump(filtered_yaml, string_stream)
+                        final_yaml_data = string_stream.getvalue()
+
+                        import re
+
+                        final_yaml_data = re.sub(
+                            r"(\s+)([^:\n]+):\s*\{\}", r"\1\2:", final_yaml_data
+                        )
+
+                        new_comparable_content = (
+                            comparison_engine.extract_comparable_content_from_scraped_yaml(
+                                raw_yaml_data=final_yaml_data,
+                                media_name=media_name,
+                                media_type=media_type,
+                                tmdb_id=tmdb_id,
+                                tvdb_id_for_tv=tvdb_id_for_tv,
+                                yaml_parser=yaml_parser,
+                                remove_paths=None,
+                            )
+                        )
                 else:
                     final_yaml_data = new_raw_yaml
                     logger.warning(
@@ -463,7 +477,7 @@ def _process_single_media_item(
                             media_type=media_type,
                             tmdb_id=tmdb_id,
                             tvdb_id_for_tv=tvdb_id_for_tv,
-                            yaml_parser=yaml.YAML(),
+                            yaml_parser=yaml_parser,
                             remove_paths=None,
                         )
                     )
@@ -475,7 +489,7 @@ def _process_single_media_item(
                         media_type=media_type,
                         tmdb_id=tmdb_id,
                         tvdb_id_for_tv=tvdb_id_for_tv,
-                        yaml_parser=yaml.YAML(),
+                        yaml_parser=yaml_parser,
                         remove_paths=None,
                     )
                 )
@@ -491,7 +505,7 @@ def _process_single_media_item(
                     media_type=media_type,
                     tmdb_id=tmdb_id,
                     tvdb_id_for_tv=tvdb_id_for_tv,
-                    yaml_parser=yaml.YAML(),
+                    yaml_parser=yaml_parser,
                     remove_paths=None,
                 )
             )
@@ -503,7 +517,7 @@ def _process_single_media_item(
                 media_type=media_type,
                 tmdb_id=tmdb_id,
                 tvdb_id_for_tv=tvdb_id_for_tv,
-                yaml_parser=yaml.YAML(),
+                yaml_parser=yaml_parser,
                 remove_paths=None,
             )
         )
@@ -511,14 +525,10 @@ def _process_single_media_item(
     # Final processing for TV shows
     if media_type == "tv" and new_comparable_content:
         try:
-            parsed_yaml_data = yaml.YAML()
-            parsed_yaml_data.allow_duplicate_keys = True
-            parsed_yaml_data = parsed_yaml_data.load(final_yaml_data)
+            parsed_yaml_data = yaml_parser.load(final_yaml_data)
 
             string_stream = StringIO()
-            yaml_dumper = yaml.YAML()
-            yaml_dumper.allow_duplicate_keys = True
-            yaml_dumper.dump(parsed_yaml_data, string_stream)
+            yaml_parser.dump(parsed_yaml_data, string_stream)
             final_yaml_data = string_stream.getvalue()
         except Exception as e:
             logger.error(f"Failed to re-process TV YAML for '{media_name}': {e}")
