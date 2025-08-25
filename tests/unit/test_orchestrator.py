@@ -197,7 +197,7 @@ def test_orchestrator_write_data_to_files_integration():
 
 
 # Simplified tests for the run function focusing on key functionality
-def test_run_function_setup_phase():
+def test_run_function_setup_phase(mock_time):
     """Test the setup phase of the run function."""
     with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
         with patch("modules.orchestrator.cache_config", Mock()):
@@ -231,10 +231,7 @@ def test_run_function_setup_phase():
                                                     ):
                                                         with patch(
                                                             "modules.orchestrator.time.time",
-                                                            side_effect=[
-                                                                1000.0,
-                                                                1100.0,
-                                                            ],
+                                                            side_effect=mock_time,
                                                         ):
                                                             with patch(
                                                                 "modules.orchestrator.os.remove"
@@ -385,9 +382,9 @@ class TestRunFunction:
         orch.folder_bulk_data = {}
         orch.cache_config = Mock()
 
-    def test_run_initialization_and_setup(self):
+    def test_run_initialization_and_setup(self, mock_time):
         """Test the initial setup phase of the run function."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch("modules.config.validate_path"):
@@ -497,9 +494,9 @@ class TestRunFunction:
                                                                             cache_dir="./out",
                                                                         )
 
-    def test_run_with_cache_disabled(self):
+    def test_run_with_cache_disabled(self, mock_time):
         """Test run function with cache disabled."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch("modules.config.validate_path"):
@@ -576,9 +573,9 @@ class TestRunFunction:
                                                                 cache_dir="./out",
                                                             )
 
-    def test_run_with_cache_clearing(self):
+    def test_run_with_cache_clearing(self, mock_time):
         """Test run function with cache clearing enabled."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch("modules.config.validate_path"):
@@ -655,9 +652,9 @@ class TestRunFunction:
                                                             # Verify cache file removal was attempted
                                                             # (This would be verified by checking os.remove calls in a more detailed test)
 
-    def test_run_with_plex_libraries(self):
+    def test_run_with_plex_libraries(self, mock_time):
         """Test run function with Plex libraries configured."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch("modules.config.validate_path"):
@@ -745,9 +742,9 @@ class TestRunFunction:
                                                                 >= 2
                                                             )  # At least for the Plex libraries
 
-    def test_run_webdriver_initialization_error(self):
+    def test_run_webdriver_initialization_error(self, mock_time):
         """Test handling of WebDriver initialization errors."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch(
@@ -826,7 +823,7 @@ class TestRunFunction:
                                                         cache_dir="./out",
                                                     )
 
-    def test_run_media_processing_with_progress(self):
+    def test_run_media_processing_with_progress(self, mock_time):
         """Test media processing with progress tracking."""
         # Mock media items to process
         mock_media_items = [
@@ -834,7 +831,7 @@ class TestRunFunction:
             ("tt0111162", "Test Movie 2", "imdb_id", "movie"),
         ]
 
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch(
@@ -983,9 +980,9 @@ class TestRunFunction:
                                                             ]
                                                         )
 
-    def test_run_with_discord_notifications(self):
+    def test_run_with_discord_notifications(self, mock_time):
         """Test Discord notification functionality."""
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch(
@@ -1075,14 +1072,14 @@ class TestRunFunction:
                                                         # (This would send notifications if there were updated titles)
                                                         # In this test, no titles were updated, so no notifications should be sent
 
-    def test_run_error_handling_and_recovery(self):
+    def test_run_error_handling_and_recovery(self, mock_time):
         """Test error handling and WebDriver recovery."""
         # Mock media items to process
         mock_media_items = [
             ("tt0111161", "Test Movie 1", "imdb_id", "movie"),
         ]
 
-        with patch("modules.orchestrator.time.time", side_effect=[1000.0, 1100.0]):
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
             with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
                 with patch("modules.orchestrator.cache_config", Mock()):
                     with patch(

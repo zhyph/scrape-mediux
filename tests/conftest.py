@@ -6,6 +6,7 @@ import os
 import tempfile
 import pytest
 import json
+import itertools
 from unittest.mock import Mock, MagicMock
 from pathlib import Path
 
@@ -179,3 +180,10 @@ def mock_yaml_parser():
     parser.load.return_value = {"tt0111161": {"title": "Test Movie"}}
     parser.dump.return_value = None
     return parser
+
+
+@pytest.fixture
+def mock_time():
+    """Mock time.time() with sufficient values for logging operations."""
+    # Generate incrementing timestamps starting from 1000.0
+    return itertools.count(1000.0, 10.0)
