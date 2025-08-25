@@ -294,7 +294,7 @@ class TestNamespaceCache:
 
         # Test Sonarr namespace
         sonarr_cache = cache.get_namespace("sonarr_api")
-        assert sonarr_cache.default_ttl == 3600  # 1 hour
+        assert sonarr_cache.default_ttl == 43200  # 12 hours
 
         # Test media_ids namespace - now permanent
         media_cache = cache.get_namespace("media_ids")
