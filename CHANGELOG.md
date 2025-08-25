@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [25.08.25.20]
+
+### Changed
+
+- **Optimized TTL settings** in `modules/intelligent_cache.py` for daily cron runs:
+  - `"sonarr_api"`: Increased from 1 hour to 12 hours (3600 → 43200 seconds)
+  - `"yaml_data"`: Reduced from 2 hours to 6 hours (7200 → 21600 seconds)
+  - `"file_ops"`: Reduced from 30 minutes to 15 minutes (1800 → 900 seconds)
+  - `"tmdb_api"` and `"media_ids"`: Kept permanent (TTL=None) for stable data
+- **Enhanced caching performance** with cache-first approach in `modules/scraper.py`:
+  - Added intelligent cache checks before expensive 5-10 second page loads
+  - Implemented parameter-aware cache keys for better hit rates
+  - Added caching for empty results to avoid repeated failed lookups
+- **Improved file operation caching** in `modules/file_manager.py`:
+  - Added modification time tracking for cache invalidation in `_collect_existing_urls()`
+  - Enhanced cache keys with timestamps to detect file changes
+- **Added YAML preprocessing caching** in `modules/data_processor.py`:
+  - Implemented content-hash based caching for `preprocess_yaml_string()`
+  - Prevents redundant YAML structure analysis for identical content
+
+### Fixed
+
+- **Updated unit tests** in `tests/unit/test_scraper.py` to account for new caching behavior
+- **Minor pytest configuration** update in `pytest.ini` for better async support
+
 ## [25.08.25.18]
 
 ### Added

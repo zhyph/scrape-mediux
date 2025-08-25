@@ -7,11 +7,15 @@ and change detection for the Mediux scraper.
 
 import re
 import logging
+import hashlib
 from typing import Dict, List, Any, Optional, Set, Tuple
 from collections.abc import Mapping, Sequence
 from ruamel.yaml import YAML
 
 logger = logging.getLogger(__name__)
+
+# Import intelligent cache
+from modules.intelligent_cache import get_cache_manager
 
 
 class YAMLDataFilter:
@@ -234,6 +238,7 @@ class YAMLStructureProcessor:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        self.cache_manager = get_cache_manager()
 
     def preprocess_yaml_string(self, yaml_string: str) -> Tuple[str, bool]:
         """
@@ -249,14 +254,28 @@ class YAMLStructureProcessor:
             Tuple containing the processed YAML string and a boolean indicating
             if any changes were made.
         """
+        # Create cache key based on content hash
+        content_hash = hashlib.md5(yaml_string.encode()).hexdigest()
+        cache_key = f"yaml_preprocess:{content_hash}"
+
+        # Check cache first
+        cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
+        if cached_result:
+            self.logger.debug("Using cached YAML preprocessing result")
+            return cached_result
+
         if "seasons:" not in yaml_string or "episodes:" not in yaml_string:
-            return yaml_string, False
+            result = (yaml_string, False)
+            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            return result
 
         seasons_match = re.search(
             r"^(?P<indent>\s*)seasons:", yaml_string, re.MULTILINE
         )
         if not seasons_match:
-            return yaml_string, False
+            result = (yaml_string, False)
+            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            return result
 
         seasons_indent = seasons_match.group("indent")
         valid_season_indent = seasons_indent + "  "
@@ -268,7 +287,9 @@ class YAMLStructureProcessor:
         matches = regex.findall(yaml_string)
 
         if not matches:
-            return yaml_string, False
+            result = (yaml_string, False)
+            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            return result
 
         season_count = 1
 
@@ -283,7 +304,9 @@ class YAMLStructureProcessor:
         )
         processed_yaml = regex.sub(season_replacer, yaml_string)
 
-        return processed_yaml, True
+        result = (processed_yaml, True)
+        self.cache_manager.cache.set("yaml_data", cache_key, result)
+        return result
 
 
 class DataComparisonEngine:

@@ -9,7 +9,7 @@ import os
 import re
 import time
 import logging
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -19,6 +19,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
+
+# Import intelligent cache
+from modules.intelligent_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +235,8 @@ class MediuxScraper:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        self.cache_manager = get_cache_manager()
+        self.page_load_cache = {}  # Simple in-memory cache for page load states
 
     def get_media_url_and_texts(
         self, media_type: str, tmdb_id: str
@@ -482,7 +487,7 @@ class MediuxScraper:
         excluded_users: Optional[List[str]] = None,
     ) -> str:
         """
-        Scrape YAML data from Mediux page.
+        Scrape YAML data from Mediux page with intelligent caching.
 
         Args:
             driver: WebDriver instance
@@ -495,6 +500,15 @@ class MediuxScraper:
         Returns:
             YAML data as string, empty string if extraction fails
         """
+        # Create cache key based on parameters that affect the result
+        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
+
+        # Check cache FIRST to avoid expensive 5-10 second page loads
+        cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
+        if cached_result is not None:  # Note: empty string is a valid cached result
+            self.logger.info(f"Using cached YAML data for {media_type} {tmdb_id}")
+            return cached_result
+
         self.logger.info(
             f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}"
         )
@@ -503,6 +517,7 @@ class MediuxScraper:
             media_type, tmdb_id
         )
 
+        # Navigation errors should always raise exceptions (never cached)
         try:
             driver.get(url)
         except Exception as e:
@@ -531,6 +546,8 @@ class MediuxScraper:
                 self.logger.warning(
                     f"No suitable YAML button found for TMDB ID {tmdb_id} after filtering."
                 )
+                # Cache negative result to avoid repeated failed lookups
+                self.cache_manager.cache.set("yaml_data", cache_key, "")
                 return ""
 
             driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
@@ -550,15 +567,20 @@ class MediuxScraper:
                     f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
                     "This might indicate an issue with the page or element structure. Returning empty."
                 )
+                self.cache_manager.cache.set("yaml_data", cache_key, "")
                 return ""
 
             yaml_len = len(yaml_data)
             self.logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
+
+            # Cache the successful result
+            self.cache_manager.cache.set("yaml_data", cache_key, yaml_data)
             return yaml_data
 
         except Exception as e:
             if not driver.find_elements(By.XPATH, yaml_xpath):
                 self.logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
+                self.cache_manager.cache.set("yaml_data", cache_key, "")
                 return ""
 
             if retry_on_yaml_failure:
@@ -568,11 +590,12 @@ class MediuxScraper:
                 driver.refresh()
                 self.logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
                 time.sleep(5)
+                # Recursive call for retry - do not cache intermediate results
                 return self.scrape_mediux(
                     driver=driver,
                     tmdb_id=tmdb_id,
                     media_type=media_type,
-                    retry_on_yaml_failure=False,
+                    retry_on_yaml_failure=False,  # Prevent infinite retry
                     preferred_users=preferred_users,
                     excluded_users=excluded_users,
                 )
@@ -580,4 +603,6 @@ class MediuxScraper:
             self.logger.error(
                 f"Error scraping TMDB ID {tmdb_id}. This may be normal if no YAML is available."
             )
+            # Cache empty result for failed extractions to avoid repeated attempts
+            self.cache_manager.cache.set("yaml_data", cache_key, "")
             return ""

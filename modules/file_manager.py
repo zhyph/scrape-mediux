@@ -9,6 +9,7 @@ import os
 import logging
 import pickle
 import shutil
+import time
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 from collections import defaultdict
 
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Import global YAML parser instance from config module
 from modules.config import yaml_parser
+
+# Import intelligent cache
+from modules.intelligent_cache import get_cache_manager
 
 
 class CacheManager:
@@ -71,12 +75,14 @@ class BulkDataManager:
     def __init__(self):
         self.yaml = yaml_parser
         self.logger = logging.getLogger(__name__)
+        self.cache_manager = get_cache_manager()
+        self.file_cache = {}  # Cache for file modification times and content
 
     def load_bulk_data(
         self, bulk_data_file: str, only_set_urls: bool = False
     ) -> Union[Dict[str, Any], Set[str]]:
         """
-        Load bulk data from YAML file.
+        Load bulk data from YAML file with intelligent caching.
 
         Args:
             bulk_data_file: Path to bulk data file
@@ -86,19 +92,31 @@ class BulkDataManager:
             Bulk data dictionary or set of URLs
         """
         if os.path.exists(bulk_data_file):
+            # Check file modification time for cache invalidation
+            file_mtime = os.path.getmtime(bulk_data_file)
+            cache_key = f"bulk_data:{bulk_data_file}:{only_set_urls}:{file_mtime}"
+
+            # Check cache first
+            cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
+            if cached_result:
+                self.logger.debug(f"Using cached bulk data for {bulk_data_file}")
+                return cached_result
+
             self.logger.info(f"Loading bulk data from {bulk_data_file}...")
             with open(bulk_data_file, "r", encoding="utf-8") as f:
+                file_content = f.read()
+
                 if only_set_urls:
                     from modules.data_processor import SetURLExtractor
 
                     extractor = SetURLExtractor()
-                    bulk_data = extractor.extract_set_urls(f.read())
+                    bulk_data = extractor.extract_set_urls(file_content)
                     self.logger.info(
                         f"Loaded {len(bulk_data)} set URLs from bulk data."
                     )
                 else:
                     try:
-                        bulk_data = self.yaml.load(f)
+                        bulk_data = self.yaml.load(file_content)
                         if (
                             bulk_data
                             and "metadata" in bulk_data
@@ -116,12 +134,17 @@ class BulkDataManager:
 
             if not bulk_data:
                 self.logger.warning("No data found in bulk data file.")
-                return set() if only_set_urls else {"metadata": {}}
+                empty_result = set() if only_set_urls else {"metadata": {}}
+                self.cache_manager.cache.set("yaml_data", cache_key, empty_result)
+                return empty_result
 
+            # Cache the result
+            self.cache_manager.cache.set("yaml_data", cache_key, bulk_data)
             return bulk_data
 
         self.logger.debug(f"Bulk data file {bulk_data_file} not found.")
-        return set() if only_set_urls else {"metadata": {}}
+        empty_result = set() if only_set_urls else {"metadata": {}}
+        return empty_result
 
 
 class FileWriter:
@@ -130,12 +153,13 @@ class FileWriter:
     def __init__(self):
         self.yaml = yaml_parser
         self.logger = logging.getLogger(__name__)
+        self.cache_manager = get_cache_manager()
 
     def _collect_existing_urls(
         self, root_folder_global: Union[str, List[str]]
     ) -> Set[str]:
         """
-        Collect existing set URLs from all data files.
+        Collect existing set URLs from all data files with caching.
 
         Args:
             root_folder_global: Root folder(s) to scan
@@ -143,13 +167,40 @@ class FileWriter:
         Returns:
             Set of existing URLs
         """
-        existing_urls = set()
-
+        # Create cache key based on root folders and their modification times
         root_folders_list = (
             root_folder_global
             if isinstance(root_folder_global, list)
             else [root_folder_global]
         )
+
+        # Check if any data files have been modified since last scan
+        latest_mtime = 0
+        for root in root_folders_list:
+            if os.path.exists(root):
+                data_dir = "./out/kometa"
+                if os.path.exists(data_dir):
+                    for file_name in os.listdir(data_dir):
+                        if file_name.endswith("_data.yml"):
+                            file_path = os.path.join(data_dir, file_name)
+                            try:
+                                mtime = os.path.getmtime(file_path)
+                                latest_mtime = max(latest_mtime, mtime)
+                            except OSError:
+                                continue
+
+        cache_key = (
+            f"existing_urls:{':'.join(sorted(root_folders_list))}:{latest_mtime}"
+        )
+
+        # Check cache first
+        cached_result = self.cache_manager.cache.get("file_ops", cache_key)
+        if cached_result:
+            self.logger.debug("Using cached existing URLs")
+            return cached_result
+
+        existing_urls = set()
+
         folder_cache = {root: os.listdir(root) for root in root_folders_list}
 
         for root, folders_in_root in folder_cache.items():
@@ -164,6 +215,11 @@ class FileWriter:
                         )
                     )
 
+        # Cache the result
+        self.cache_manager.cache.set("file_ops", cache_key, existing_urls)
+        self.logger.debug(
+            f"Cached existing URLs for {len(root_folders_list)} root folders"
+        )
         return existing_urls
 
     def _update_data_file(

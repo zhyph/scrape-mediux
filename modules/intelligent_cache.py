@@ -225,12 +225,13 @@ class NamespaceCache:
             if name not in self.namespaces:
                 # Configure different TTLs for different namespaces - optimized for daily runs
                 ttl_config = {
-                    "tmdb_api": None,  # Permanent - TMDB ID mappings are stable
-                    "sonarr_api": 3600,  # 1 hour - series status can change frequently
-                    "yaml_data": 7200,  # 2 hours - processed YAML (moderate refresh)
-                    "media_ids": None,  # Permanent - folder structure IDs are stable
+                    "tmdb_api": None,        # permanent - TMDB IDs are inherently stable
+                    "sonarr_api": 43200,     # 12 hours - series status changes are moderate
+                    "yaml_data": 21600,      # 6 hours - processed YAML needs periodic refresh
+                    "media_ids": None,       # permanent - folder structure IDs are stable
+                    "file_ops": 900,         # 15 minutes - file operations can change more frequently
                 }
-                ttl = ttl_config.get(name, 3600)
+                ttl = ttl_config.get(name, 3600) # Default 1 hour TTL
                 self.namespaces[name] = IntelligentCache(max_size=5000, default_ttl=ttl)
             return self.namespaces[name]
 

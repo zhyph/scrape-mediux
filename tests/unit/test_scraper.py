@@ -580,39 +580,10 @@ class TestMediuxScraper:
         mock_wait_instance = Mock()
         mock_wait.return_value = mock_wait_instance
 
-        # Mock find_yaml_button to return None
-        with patch.object(self.scraper, "find_yaml_button", return_value=None):
-            with patch.object(
-                self.scraper,
-                "get_media_url_and_texts",
-                return_value=("https://mediux.pro/movies/123", "updating", "success"),
-            ):
-                with patch.object(self.scraper, "wait_for_update_completion"):
-                    with patch.object(self.scraper, "wait_for_refresh_completion"):
-
-                        # Execute
-                        result = self.scraper.scrape_mediux(mock_driver, "123", "movie")
-
-                        # Verify
-                        assert result == ""
-
-    def test_scrape_mediux_with_retry(self):
-        """Test YAML scraping with retry on failure."""
-        # Setup mocks
-        mock_driver = Mock()
-        mock_button = Mock()
-
-        # Mock find_yaml_button to return a button initially, then None on retry
-        def mock_find_yaml_button(*args, **kwargs):
-            if mock_driver.refresh.call_count == 0:
-                return mock_button  # Return button first time
-            else:
-                return None  # Return None on retry
-
-        with patch("modules.scraper.time.sleep"):
-            with patch.object(
-                self.scraper, "find_yaml_button", side_effect=mock_find_yaml_button
-            ):
+        # Mock cache to return None (no cached data)
+        with patch.object(self.scraper.cache_manager.cache, "get", return_value=None):
+            # Mock find_yaml_button to return None
+            with patch.object(self.scraper, "find_yaml_button", return_value=None):
                 with patch.object(
                     self.scraper,
                     "get_media_url_and_texts",
@@ -624,32 +595,77 @@ class TestMediuxScraper:
                 ):
                     with patch.object(self.scraper, "wait_for_update_completion"):
                         with patch.object(self.scraper, "wait_for_refresh_completion"):
-                            with patch("modules.scraper.WebDriverWait") as mock_wait:
-                                mock_wait_instance = Mock()
-                                mock_wait.return_value = mock_wait_instance
 
-                                # Mock YAML buttons found on page
-                                mock_driver.find_elements.return_value = [mock_button]
+                            # Execute
+                            result = self.scraper.scrape_mediux(
+                                mock_driver, "123", "movie"
+                            )
 
-                                # Mock YAML element timeout on first attempt (triggering retry)
-                                mock_wait_instance.until.side_effect = [
-                                    Mock(),  # First wait succeeds (YAML button click)
-                                    TimeoutException(
-                                        "No YAML element"
-                                    ),  # Second wait fails (YAML content)
-                                ]
+                            # Verify
+                            assert result == ""
 
-                                # Execute with retry enabled
-                                result = self.scraper.scrape_mediux(
-                                    mock_driver,
-                                    "123",
-                                    "movie",
-                                    retry_on_yaml_failure=True,
-                                )
+    def test_scrape_mediux_with_retry(self):
+        """Test YAML scraping with retry on failure."""
+        # Setup mocks
+        mock_driver = Mock()
+        mock_button = Mock()
 
-                                # Verify
-                                assert result == ""
-                                assert mock_driver.refresh.call_count == 1
+        # Mock cache to return None (no cached data) so we test the actual retry logic
+        with patch.object(self.scraper.cache_manager.cache, "get", return_value=None):
+            # Mock find_yaml_button to return a button initially, then None on retry
+            def mock_find_yaml_button(*args, **kwargs):
+                if mock_driver.refresh.call_count == 0:
+                    return mock_button  # Return button first time
+                else:
+                    return None  # Return None on retry
+
+            with patch("modules.scraper.time.sleep"):
+                with patch.object(
+                    self.scraper, "find_yaml_button", side_effect=mock_find_yaml_button
+                ):
+                    with patch.object(
+                        self.scraper,
+                        "get_media_url_and_texts",
+                        return_value=(
+                            "https://mediux.pro/movies/123",
+                            "updating",
+                            "success",
+                        ),
+                    ):
+                        with patch.object(self.scraper, "wait_for_update_completion"):
+                            with patch.object(
+                                self.scraper, "wait_for_refresh_completion"
+                            ):
+                                with patch(
+                                    "modules.scraper.WebDriverWait"
+                                ) as mock_wait:
+                                    mock_wait_instance = Mock()
+                                    mock_wait.return_value = mock_wait_instance
+
+                                    # Mock YAML buttons found on page
+                                    mock_driver.find_elements.return_value = [
+                                        mock_button
+                                    ]
+
+                                    # Mock YAML element timeout on first attempt (triggering retry)
+                                    mock_wait_instance.until.side_effect = [
+                                        Mock(),  # First wait succeeds (YAML button click)
+                                        TimeoutException(
+                                            "No YAML element"
+                                        ),  # Second wait fails (YAML content)
+                                    ]
+
+                                    # Execute with retry enabled
+                                    result = self.scraper.scrape_mediux(
+                                        mock_driver,
+                                        "123",
+                                        "movie",
+                                        retry_on_yaml_failure=True,
+                                    )
+
+                                    # Verify
+                                    assert result == ""
+                                    assert mock_driver.refresh.call_count == 1
 
     @patch("modules.scraper.time.sleep")
     def test_scrape_mediux_navigation_error(self, mock_sleep):
@@ -658,9 +674,11 @@ class TestMediuxScraper:
         mock_driver = Mock()
         mock_driver.get.side_effect = Exception("Navigation failed")
 
-        # Execute and verify exception is raised
-        with pytest.raises(Exception, match="Navigation failed"):
-            self.scraper.scrape_mediux(mock_driver, "123", "movie")
+        # Mock cache to return None (no cached data) so navigation is attempted
+        with patch.object(self.scraper.cache_manager.cache, "get", return_value=None):
+            # Execute and verify exception is raised
+            with pytest.raises(Exception, match="Navigation failed"):
+                self.scraper.scrape_mediux(mock_driver, "123", "movie")
 
 
 class TestInitializeAndLoginDriver:
