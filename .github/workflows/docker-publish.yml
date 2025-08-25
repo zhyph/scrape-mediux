@@ -9,7 +9,20 @@ on:
       - "v*.*.*"
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: pytest --cov=modules --cov=main --cov-fail-under=80
   build-and-publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

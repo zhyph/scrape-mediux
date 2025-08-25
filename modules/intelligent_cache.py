@@ -225,11 +225,10 @@ class NamespaceCache:
             if name not in self.namespaces:
                 # Configure different TTLs for different namespaces - optimized for daily runs
                 ttl_config = {
-                    "tmdb_api": 86400,  # 24 hours for TMDB data (movies/TV rarely change)
-                    "sonarr_api": 3600,  # 1 hour for Sonarr data (series status changes)
-                    "yaml_data": 7200,  # 2 hours for processed YAML (moderate refresh)
-                    "media_ids": 43200,  # 12 hours for media ID lookups (folder structure stable)
-                    "config": 300,  # 5 minutes for config data (frequent changes)
+                    "tmdb_api": None,  # Permanent - TMDB ID mappings are stable
+                    "sonarr_api": 3600,  # 1 hour - series status can change frequently
+                    "yaml_data": 7200,  # 2 hours - processed YAML (moderate refresh)
+                    "media_ids": None,  # Permanent - folder structure IDs are stable
                 }
                 ttl = ttl_config.get(name, 3600)
                 self.namespaces[name] = IntelligentCache(max_size=5000, default_ttl=ttl)
@@ -313,6 +312,7 @@ class NamespaceCache:
             except Exception as e:
                 self.logger.error(f"Failed to save intelligent cache: {e}")
                 import traceback
+
                 self.logger.debug(f"Cache save error details: {traceback.format_exc()}")
 
     def load_from_file(self, filepath: str):
@@ -345,10 +345,12 @@ class NamespaceCache:
                             # New format with individual fields
                             entry = CacheEntry(
                                 value=entry_data["value"],
-                                ttl_seconds=entry_data.get("ttl_seconds")
+                                ttl_seconds=entry_data.get("ttl_seconds"),
                             )
                             entry.created_at = entry_data.get("created_at", time.time())
-                            entry.accessed_at = entry_data.get("accessed_at", time.time())
+                            entry.accessed_at = entry_data.get(
+                                "accessed_at", time.time()
+                            )
                             entry.access_count = entry_data.get("access_count", 0)
                         else:
                             # Legacy format (direct value)
@@ -368,6 +370,7 @@ class NamespaceCache:
         except Exception as e:
             self.logger.error(f"Failed to load intelligent cache: {e}")
             import traceback
+
             self.logger.debug(f"Cache load error details: {traceback.format_exc()}")
 
 
@@ -491,6 +494,35 @@ class CacheManager:
     def load_cache(self, filepath: str):
         """Load intelligent cache from file."""
         self.cache.load_from_file(filepath)
+
+    def refresh_permanent_entries(self, namespace: str):
+        """Force refresh of permanent cache entries by clearing them.
+
+        This method clears permanent cache entries (TTL=None) that should be refreshed,
+        such as when external APIs have updated their data.
+
+        Args:
+            namespace: The cache namespace to refresh (e.g., 'tmdb_api', 'media_ids')
+        """
+        if namespace in self.cache.namespaces:
+            cache = self.cache.namespaces[namespace]
+            permanent_keys = []
+
+            with cache.lock:
+                for key, entry in cache.cache.items():
+                    if entry.ttl_seconds is None:  # Permanent entry
+                        permanent_keys.append(key)
+
+                for key in permanent_keys:
+                    del cache.cache[key]
+                    cache.stats["size"] = len(cache.cache)
+
+            if permanent_keys:
+                self.logger.info(
+                    f"Refreshed {len(permanent_keys)} permanent entries in {namespace}"
+                )
+            else:
+                self.logger.info(f"No permanent entries found in {namespace}")
 
 
 # Global cache manager instance

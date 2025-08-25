@@ -28,3 +28,9 @@ profile/
 # Ignore documentation and CI/CD files
 README.md
 .github/
+
+# Additional exclusions
+.env
+*.log
+tests/
+htmlcov/

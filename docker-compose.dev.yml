@@ -1,0 +1,19 @@
+services:
+  scrape-mediux-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scrape-mediux-dev
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./:/config
+      - ./out:/app/out
+      - ./profile:/profile
+      - ./output:/out
+    stdin_open: true # Keep stdin open for interactive debugging
+    tty: true # Allocate pseudo-TTY
+    restart: unless-stopped
