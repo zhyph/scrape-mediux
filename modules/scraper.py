@@ -192,6 +192,41 @@ class MediuxLoginManager:
             raise
 
 
+def initialize_and_login_driver(
+    *,
+    headless,
+    profile_path,
+    chromedriver_path,
+    username,
+    password,
+    nickname,
+):
+    """Initialize WebDriver and login to Mediux."""
+    webdriver_manager = WebDriverManager(
+        None
+    )  # config_path will be set later if needed
+    driver = webdriver_manager.init_driver(
+        headless=headless,
+        profile_path=profile_path,
+        chromedriver_path=chromedriver_path,
+    )
+
+    login_manager = MediuxLoginManager(webdriver_manager)
+    try:
+        login_manager.login(
+            driver=driver,
+            username=username,
+            password=password,
+            nickname=nickname,
+        )
+        return driver
+    except Exception as e:
+        logger.error(f"Failed to login during driver re-initialization: {e}")
+        if driver:
+            driver.quit()
+        raise
+
+
 class MediuxScraper:
     """Handles Mediux page scraping and YAML extraction."""
 

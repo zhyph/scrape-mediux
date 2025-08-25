@@ -322,7 +322,6 @@ class DataComparisonEngine:
         import logging
         from typing import Dict, List, Any, Optional, Set, Tuple
         from collections.abc import Mapping, Sequence
-        from ruamel import yaml
 
         from modules.tmdb_client import to_standard_dict
 

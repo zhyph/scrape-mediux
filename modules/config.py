@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 from typing import Dict, List, Any, Optional, Union
+from ruamel import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class ConfigManager:
         Load configuration from JSON file.
 
         Args:
-            config_path: Path to the configuration file
+            config_path: Path to the configuration file or directory containing config.json
 
         Returns:
             Dictionary containing configuration values
@@ -35,7 +36,13 @@ class ConfigManager:
             FileNotFoundError: If config file doesn't exist
             json.JSONDecodeError: If config file is invalid JSON
         """
-        full_config_path = os.path.join(config_path, "config.json")
+        # Handle both cases: config_path could be a file path or directory
+        if config_path.endswith("config.json") or config_path.endswith(".json"):
+            # config_path is already the full file path
+            full_config_path = config_path
+        else:
+            # config_path is a directory, append config.json
+            full_config_path = os.path.join(config_path, "config.json")
 
         if not os.path.exists(full_config_path):
             raise FileNotFoundError(
@@ -614,3 +621,8 @@ def _validate_single_path(path: str, description: str) -> None:
         raise NotADirectoryError(
             f"{description} '{path}' is not a directory. Please check your configuration."
         )
+
+
+# Global YAML parser instance with duplicate keys allowed
+yaml_parser = yaml.YAML()
+yaml_parser.allow_duplicate_keys = True

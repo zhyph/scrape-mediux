@@ -275,14 +275,30 @@ class NamespaceCache:
         with self.lock:
             try:
                 # Create directory if it doesn't exist
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                dir_path = os.path.dirname(filepath)
+                if dir_path and not os.path.exists(dir_path):
+                    os.makedirs(dir_path, exist_ok=True)
+                    self.logger.debug(f"Created cache directory: {dir_path}")
+
+                # Only save if there are namespaces with data
+                if not self.namespaces:
+                    self.logger.debug("No cache data to save")
+                    return
 
                 # Prepare data for serialization
                 cache_data = {}
                 for name, cache in self.namespaces.items():
                     # Convert OrderedDict to regular dict for serialization
-                    cache_dict = dict(cache.cache)
-                    # Remove the lock object as it can't be pickled
+                    cache_dict = {}
+                    for key, entry in cache.cache.items():
+                        cache_dict[key] = {
+                            "value": entry.value,
+                            "created_at": entry.created_at,
+                            "accessed_at": entry.accessed_at,
+                            "ttl_seconds": entry.ttl_seconds,
+                            "access_count": entry.access_count,
+                        }
+
                     cache_data[name] = {
                         "cache": cache_dict,
                         "max_size": cache.max_size,
@@ -296,6 +312,8 @@ class NamespaceCache:
                 self.logger.info(f"Intelligent cache saved to {filepath}")
             except Exception as e:
                 self.logger.error(f"Failed to save intelligent cache: {e}")
+                import traceback
+                self.logger.debug(f"Cache save error details: {traceback.format_exc()}")
 
     def load_from_file(self, filepath: str):
         """Load cache data from a pickle file."""
@@ -319,7 +337,25 @@ class NamespaceCache:
 
                     # Restore cache data
                     cache = self.namespaces[name]
-                    cache.cache = OrderedDict(data.get("cache", {}))
+                    cache.cache = OrderedDict()
+
+                    # Reconstruct CacheEntry objects from saved data
+                    for key, entry_data in data.get("cache", {}).items():
+                        if isinstance(entry_data, dict):
+                            # New format with individual fields
+                            entry = CacheEntry(
+                                value=entry_data["value"],
+                                ttl_seconds=entry_data.get("ttl_seconds")
+                            )
+                            entry.created_at = entry_data.get("created_at", time.time())
+                            entry.accessed_at = entry_data.get("accessed_at", time.time())
+                            entry.access_count = entry_data.get("access_count", 0)
+                        else:
+                            # Legacy format (direct value)
+                            entry = CacheEntry(value=entry_data)
+
+                        cache.cache[key] = entry
+
                     # Reset statistics for new run but preserve cache data
                     cache.stats = {
                         "hits": 0,
@@ -331,6 +367,8 @@ class NamespaceCache:
             self.logger.info(f"Intelligent cache loaded from {filepath}")
         except Exception as e:
             self.logger.error(f"Failed to load intelligent cache: {e}")
+            import traceback
+            self.logger.debug(f"Cache load error details: {traceback.format_exc()}")
 
 
 class CacheManager:

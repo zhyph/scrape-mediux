@@ -11,13 +11,11 @@ import pickle
 import shutil
 from typing import Dict, List, Any, Optional, Set, Tuple, Union
 from collections import defaultdict
-from ruamel import yaml
 
 logger = logging.getLogger(__name__)
 
-# Global YAML parser instance with duplicate keys allowed
-yaml_parser = yaml.YAML()
-yaml_parser.allow_duplicate_keys = True
+# Import global YAML parser instance from config module
+from modules.config import yaml_parser
 
 
 class CacheManager:
