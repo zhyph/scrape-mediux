@@ -50,7 +50,7 @@ class WebDriverManager:
         Raises:
             Exception: If WebDriver initialization fails
         """
-        self.logger.info("Initializing WebDriver...")
+        self.logger.debug("Initializing WebDriver...")
         options = Options()
 
         if headless:
@@ -65,7 +65,6 @@ class WebDriverManager:
             options.add_argument(f"--user-data-dir={profile_path}")
 
         try:
-            self.logger.debug(f"Path to ChromeDriver: {chromedriver_path}")
             if chromedriver_path:
                 driver = webdriver.Chrome(
                     service=ChromeService(chromedriver_path), options=options
@@ -137,7 +136,7 @@ class MediuxLoginManager:
         Raises:
             Exception: If login fails
         """
-        self.logger.info("Checking login status on Mediux...")
+        self.logger.debug("Checking login status on Mediux...")
         base_url = "https://mediux.pro"
         driver.get(base_url)
 
@@ -152,7 +151,7 @@ class MediuxLoginManager:
             return
 
         except TimeoutException:
-            self.logger.info("User is not logged in. Proceeding with login...")
+            self.logger.debug("User is not logged in. Proceeding with login...")
 
         try:
             # Click sign in button
@@ -162,25 +161,21 @@ class MediuxLoginManager:
                 )
             )
             login_button.click()
-            self.logger.debug("Clicked on 'Sign In' button.")
 
             # Wait for login form to load
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, ":r0:-form-item"))
             )
-            self.logger.debug("Login form loaded.")
 
             # Enter credentials
             username_field = driver.find_element(By.ID, ":r0:-form-item")
             password_field = driver.find_element(By.ID, ":r1:-form-item")
             username_field.send_keys(username)
             password_field.send_keys(password)
-            self.logger.debug("Entered username and password.")
 
             # Submit form
             submit_button = driver.find_element(By.XPATH, "//form/button")
             submit_button.click()
-            self.logger.debug("Clicked on 'Submit' button.")
 
             # Wait for login confirmation
             WebDriverWait(driver, 10).until(
@@ -249,15 +244,13 @@ class MediuxScraper:
             update_toast_xpath = f"//li[contains(@class, 'toast')]//div[contains(text(), '{updating_text}')]"
             success_toast_xpath = f"//li[contains(@class, 'toast')]//div[contains(text(), '{success_text}')]"
 
-            self.logger.debug(f"Checking page status for {media_type} {tmdb_id}...")
-
             update_elements = driver.find_elements(By.XPATH, update_toast_xpath)
             success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
 
             if update_elements:
                 toast_text = update_elements[0].text
-                self.logger.info(f"Page updating: '{toast_text}'")
-                self.logger.info(
+                self.logger.debug(f"Page updating: '{toast_text}'")
+                self.logger.debug(
                     f"Waiting for update completion for {media_type} {tmdb_id}..."
                 )
 
@@ -270,16 +263,20 @@ class MediuxScraper:
 
                 success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
                 if success_elements:
-                    self.logger.info(f"Update successful: '{success_elements[0].text}'")
+                    self.logger.debug(
+                        f"Update successful: '{success_elements[0].text}'"
+                    )
                 else:
-                    self.logger.info(
+                    self.logger.debug(
                         f"Update process completed for {media_type} {tmdb_id}"
                     )
 
                 time.sleep(1)
             else:
                 if success_elements:
-                    self.logger.info(f"Update successful: '{success_elements[0].text}'")
+                    self.logger.debug(
+                        f"Update successful: '{success_elements[0].text}'"
+                    )
                 else:
                     self.logger.debug(f"No update needed for {media_type} {tmdb_id}")
 
@@ -306,10 +303,10 @@ class MediuxScraper:
             spinner_elements = driver.find_elements(By.XPATH, refresh_spinner_xpath)
 
             if spinner_elements:
-                self.logger.info(
+                self.logger.debug(
                     f"Page status: Refresh in progress for {media_type} {tmdb_id}"
                 )
-                self.logger.info(
+                self.logger.debug(
                     f"Detected refresh operation for {media_type} {tmdb_id}, waiting for completion..."
                 )
 
@@ -317,7 +314,7 @@ class MediuxScraper:
                     lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
                 )
 
-                self.logger.info(
+                self.logger.debug(
                     f"Page status: Refresh completed for {media_type} {tmdb_id}"
                 )
                 time.sleep(1)

@@ -144,13 +144,13 @@ class ConfigManager:
             def __init__(self):
                 super().__init__()
                 self.colors = {
-                    'DEBUG': Fore.CYAN,
-                    'INFO': Fore.GREEN,
-                    'WARNING': Fore.YELLOW,
-                    'ERROR': Fore.RED,
-                    'CRITICAL': Fore.RED + Back.WHITE,
-                    'USER': Fore.MAGENTA,
-                    'DETAIL': Fore.BLUE
+                    "DEBUG": Fore.CYAN,
+                    "INFO": Fore.GREEN,
+                    "WARNING": Fore.YELLOW,
+                    "ERROR": Fore.RED,
+                    "CRITICAL": Fore.RED + Back.WHITE,
+                    "USER": Fore.MAGENTA,
+                    "DETAIL": Fore.BLUE,
                 }
                 self.reset = Style.RESET_ALL
 
@@ -159,24 +159,27 @@ class ConfigManager:
                 color = self.colors.get(record.levelname, Fore.WHITE)
 
                 # Custom formatting based on log level
-                if record.levelname == 'INFO':
-                    formatted_time = f"{Fore.BLUE}{self.formatTime(record, '%H:%M:%S')}{self.reset}"
+                if record.levelname == "INFO":
+                    formatted_time = (
+                        f"{Fore.BLUE}{self.formatTime(record, '%H:%M:%S')}{self.reset}"
+                    )
                     return f"{formatted_time} {Fore.GREEN}INFO{self.reset} {color}{record.getMessage()}{self.reset}"
-                elif record.levelname == 'WARNING':
+                elif record.levelname == "WARNING":
                     return f"{Fore.YELLOW}⚠️  WARNING{self.reset} {color}{record.getMessage()}{self.reset}"
-                elif record.levelname == 'ERROR':
+                elif record.levelname == "ERROR":
                     return f"{Fore.RED}❌ ERROR{self.reset} {color}{record.getMessage()}{self.reset}"
-                elif record.levelname == 'USER':
+                elif record.levelname == "USER":
                     return f"{Fore.MAGENTA}👤 USER{self.reset} {color}{record.getMessage()}{self.reset}"
-                elif record.levelname == 'DETAIL':
+                elif record.levelname == "DETAIL":
                     return f"{Fore.BLUE}🔧 DETAIL{self.reset} {color}{record.getMessage()}{self.reset}"
                 else:
-                    return f"{color}{record.levelname}{self.reset} {record.getMessage()}"
+                    return (
+                        f"{color}{record.levelname}{self.reset} {record.getMessage()}"
+                    )
 
         # File formatter (no colors)
         file_formatter = logging.Formatter(
-            "%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
         # Console handler with colors
@@ -184,14 +187,18 @@ class ConfigManager:
         console_handler.setFormatter(ColoredFormatter())
 
         # File handler without colors
-        file_handler = logging.FileHandler("scrape-mediux.log", mode="a", encoding="utf-8")
+        file_handler = logging.FileHandler(
+            "scrape-mediux.log", mode="a", encoding="utf-8"
+        )
         file_handler.setFormatter(file_formatter)
 
         # Setup root logger
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging_levels.get(
-            os.environ.get("LOG_LEVEL", log_level).upper(), logging.INFO
-        ))
+        root_logger.setLevel(
+            logging_levels.get(
+                os.environ.get("LOG_LEVEL", log_level).upper(), logging.INFO
+            )
+        )
 
         # Clear existing handlers and add our custom ones
         root_logger.handlers.clear()
@@ -318,6 +325,24 @@ class ConfigManager:
             "--remove_paths",
             nargs="*",
             help="List of YAML field paths to remove (others will be kept). Use dot notation with wildcards. Examples: *.url_background, seasons.*.url_poster. Note: *.field matches all instances, use specific paths for selective removal. WARNING: Some YAML comments may be lost when filtering is applied.",
+        )
+
+        # Cache management
+        parser.add_argument(
+            "--disable_cache",
+            action="store_true",
+            help="Disable loading and saving of caches (fresh start each time)",
+        )
+        parser.add_argument(
+            "--clear_cache",
+            action="store_true",
+            help="Clear existing cache files before running",
+        )
+        parser.add_argument(
+            "--cache_dir",
+            type=str,
+            default="./out",
+            help="Directory to store cache files (default: ./out)",
         )
 
         return parser
@@ -518,6 +543,29 @@ class ConfigManager:
                 default_val=[],
             ),
             "tz": file_config.get("TZ"),
+            "disable_cache": self._resolve_config_value(
+                arg_val=args.disable_cache,
+                env_var_name="DISABLE_CACHE",
+                config_key="disable_cache",
+                file_config=file_config,
+                default_val=False,
+                is_bool=True,
+            ),
+            "clear_cache": self._resolve_config_value(
+                arg_val=args.clear_cache,
+                env_var_name="CLEAR_CACHE",
+                config_key="clear_cache",
+                file_config=file_config,
+                default_val=False,
+                is_bool=True,
+            ),
+            "cache_dir": self._resolve_config_value(
+                arg_val=args.cache_dir,
+                env_var_name="CACHE_DIR",
+                config_key="cache_dir",
+                file_config=file_config,
+                default_val="./out",
+            ),
         }
 
         return app_config

@@ -255,7 +255,7 @@ class FileWriter:
         new_data: Dict[str, Dict[str, str]],
         root_folder_global: Union[str, List[str]],
         cache: Dict[str, Tuple[Optional[str], Optional[str]]],
-        cache_file: str,
+        cache_file: Optional[str],
         output_dir_global: Optional[str],
     ) -> None:
         """
@@ -307,8 +307,12 @@ class FileWriter:
                 f.write(url + "\n")
         self.logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
 
-        cache_manager = CacheManager(cache_file)
-        cache_manager.save_cache(cache)
+        if cache_file:
+            cache_manager = CacheManager(cache_file)
+            cache_manager.save_cache(cache)
+        else:
+            self.logger.info("Cache saving disabled - skipping cache file operations")
+
         self.logger.info("Data writing completed.")
 
         self._copy_to_output_dir(output_dir_global)

@@ -130,7 +130,10 @@ class YAMLDataFilter:
                         if isinstance(value, (dict, list)):
                             filtered_value = filter_recursive(value, new_path)
                             # Only add the key if the filtered value is not None and not empty
-                            if filtered_value is not None and not (isinstance(filtered_value, dict) and len(filtered_value) == 0):
+                            if filtered_value is not None and not (
+                                isinstance(filtered_value, dict)
+                                and len(filtered_value) == 0
+                            ):
                                 filtered_dict[key] = filtered_value
                         else:
                             # For leaf values, add them directly since we've already checked the key path
@@ -148,7 +151,11 @@ class YAMLDataFilter:
                         if parent_key == "seasons":
                             # This is a season entry - preserve it even if empty
                             return {}
-                        elif path[-1].isdigit() and len(path) >= 3 and path[-3] == "seasons":
+                        elif (
+                            path[-1].isdigit()
+                            and len(path) >= 3
+                            and path[-3] == "seasons"
+                        ):
                             # This is a season number - preserve it even if empty
                             return {}
                         elif parent_key == "episodes":
@@ -166,7 +173,10 @@ class YAMLDataFilter:
                 # Check if this is the seasons section and all its children are empty
                 if path and len(path) >= 1 and path[-1] == "seasons":
                     # Check if all values in the seasons dict are empty
-                    if all(isinstance(v, dict) and len(v) == 0 for v in filtered_dict.values()):
+                    if all(
+                        isinstance(v, dict) and len(v) == 0
+                        for v in filtered_dict.values()
+                    ):
                         # All season entries are empty - convert to empty list for Kometa compatibility
                         return []
 
@@ -178,7 +188,10 @@ class YAMLDataFilter:
                     if not self._should_remove_path(new_path, remove_paths):
                         if isinstance(item, (dict, list)):
                             filtered_item = filter_recursive(item, new_path)
-                            if filtered_item is not None and not (isinstance(filtered_item, dict) and len(filtered_item) == 0):
+                            if filtered_item is not None and not (
+                                isinstance(filtered_item, dict)
+                                and len(filtered_item) == 0
+                            ):
                                 filtered_list.append(filtered_item)
                         else:
                             # For list items, check if the item should be removed
@@ -383,8 +396,14 @@ class DataComparisonEngine:
                     yaml_data=parsed_wrapper,
                     remove_paths=remove_paths,
                 )
-                if not parsed_wrapper or (isinstance(parsed_wrapper, dict) and len(parsed_wrapper) == 1 and parsed_wrapper.get("_filtered_empty_")):
-                    if isinstance(parsed_wrapper, dict) and parsed_wrapper.get("_filtered_empty_"):
+                if not parsed_wrapper or (
+                    isinstance(parsed_wrapper, dict)
+                    and len(parsed_wrapper) == 1
+                    and parsed_wrapper.get("_filtered_empty_")
+                ):
+                    if isinstance(parsed_wrapper, dict) and parsed_wrapper.get(
+                        "_filtered_empty_"
+                    ):
                         self.logger.info(
                             f"Filtering resulted in empty structure for '{media_name}' (TMDB: {tmdb_id}) - marked as filtered empty"
                         )

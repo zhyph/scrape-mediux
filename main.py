@@ -21,6 +21,23 @@ from urllib3.exceptions import ReadTimeoutError
 from selenium.common.exceptions import TimeoutException
 from croniter import croniter
 
+# Configure requests connection pool for better performance
+import requests
+from urllib3.util import Retry
+from requests.adapters import HTTPAdapter
+
+# Create a session with optimized connection pool
+session = requests.Session()
+adapter = HTTPAdapter(
+    pool_connections=10,  # Connection pool for HTTP requests
+    pool_maxsize=10,  # Max connections per pool
+    max_retries=Retry(
+        total=3, backoff_factor=0.3, status_forcelist=[429, 500, 502, 503, 504]
+    ),
+)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
+
 # Import modular components
 from modules.config import ConfigManager, validate_path
 from modules.scraper import WebDriverManager, MediuxLoginManager, MediuxScraper
@@ -38,6 +55,7 @@ from modules.external_services import (
     MediaDiscoveryService,
 )
 
+
 # Global variables for backward compatibility
 new_data = defaultdict(dict)
 cache = {}
@@ -46,6 +64,37 @@ root_folder_global = ""
 output_dir_global = None
 config_path_global = None
 discord_webhook_url_global = None
+
+
+# Cache configuration class for better encapsulation
+class CacheConfig:
+    """Configuration class for cache management settings."""
+
+    def __init__(
+        self,
+        disable_cache: bool = False,
+        clear_cache: bool = False,
+        cache_dir: str = "./out",
+    ):
+        self.disable_cache = disable_cache
+        self.clear_cache = clear_cache
+        self.cache_dir = cache_dir
+
+    def get_cache_file_path(self, filename: str) -> str:
+        """Get full path for cache file."""
+        return os.path.join(self.cache_dir, filename)
+
+    def should_load_cache(self) -> bool:
+        """Determine if cache should be loaded."""
+        return not self.disable_cache
+
+    def should_save_cache(self) -> bool:
+        """Determine if cache should be saved."""
+        return not self.disable_cache
+
+
+# Global cache configuration instance
+cache_config = CacheConfig()
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +138,7 @@ def schedule_run(*, cron_expression, args_dict):
 
 def write_data_to_files():
     """Write collected data to files."""
-    global new_data, cache, root_folder_global
+    global new_data, cache, root_folder_global, cache_config
 
     if not root_folder_global:
         logger.error("Root folder is not set. Cannot write data.")
@@ -100,11 +149,24 @@ def write_data_to_files():
 
     file_writer = FileWriter()
 
+    # Save intelligent cache if not disabled
+    if cache_config.should_save_cache():
+        from modules.intelligent_cache import get_cache_manager
+
+        intelligent_cache_manager = get_cache_manager()
+        intelligent_cache_manager.save_cache(
+            cache_config.get_cache_file_path("intelligent_cache.pkl")
+        )
+
     file_writer.write_data_to_files(
         new_data=new_data,
         root_folder_global=root_folder_global,
-        cache=cache,
-        cache_file="./out/tmdb_cache.pkl",
+        cache=cache if cache_config.should_save_cache() else {},
+        cache_file=(
+            cache_config.get_cache_file_path("tmdb_cache.pkl")
+            if cache_config.should_save_cache()
+            else None
+        ),
         output_dir_global=output_dir_global,
     )
 
@@ -184,7 +246,9 @@ def _get_media_ids(
     if root_folder:
         logger.info("Fetching media IDs from folder names...")
         discovery_service = MediaDiscoveryService()
-        return discovery_service.get_media_ids_from_folder(root_folder, selected_folders)
+        return discovery_service.get_media_ids_from_folder(
+            root_folder, selected_folders
+        )
     else:
         logger.error("No Plex config or root_folder provided. Nothing to do. Exiting.")
         exit(1)
@@ -240,9 +304,24 @@ def _process_single_media_item(
     disable_season_fix=False,
     media_type_from_plex=None,
     remove_paths=None,
+    shared_cache=None,
+    shared_new_data=None,
+    shared_folder_bulk_data=None,
 ):
     """Process a single media item."""
+    # Declare globals for fallback
     global cache, new_data, folder_bulk_data
+
+    # Use provided resources if available, otherwise use globals
+    if shared_cache is not None:
+        cache = shared_cache
+    if shared_new_data is not None:
+        new_data = shared_new_data
+    if shared_folder_bulk_data is not None:
+        folder_bulk_data = shared_folder_bulk_data
+
+    # Use standard append function
+    safe_append = lambda container, item: container.append(item)
 
     # Log the start of processing immediately
     media_separator = "=" * 60
@@ -402,7 +481,7 @@ def _process_single_media_item(
                 log_id_str = (
                     f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
                 )
-                fixed_titles_list.append(f"{media_name} ({log_id_str})")
+                safe_append(fixed_titles_list, f"{media_name} ({log_id_str})")
             else:
                 logger.warning(
                     f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
@@ -430,15 +509,17 @@ def _process_single_media_item(
                 if filtered_yaml:
                     # Check if the filtered result is marked as filtered empty
                     is_filtered_empty = (
-                        isinstance(filtered_yaml, dict) and
-                        len(filtered_yaml) == 1 and
-                        filtered_yaml.get("_filtered_empty_") is True
+                        isinstance(filtered_yaml, dict)
+                        and len(filtered_yaml) == 1
+                        and filtered_yaml.get("_filtered_empty_") is True
                     )
 
                     if is_filtered_empty:
                         # Handle filtered empty case - create recognizable empty structure
                         media_id_key = next(iter(parsed_yaml.keys()))
-                        final_yaml_data = f"# Filtered empty by remove_paths\n{media_id_key}:"
+                        final_yaml_data = (
+                            f"# Filtered empty by remove_paths\n{media_id_key}:"
+                        )
                         logger.info(
                             f"Filtering resulted in empty structure for '{media_name}' (TMDB: {tmdb_id}) - marked as filtered empty"
                         )
@@ -454,16 +535,14 @@ def _process_single_media_item(
                             r"(\s+)([^:\n]+):\s*\{\}", r"\1\2:", final_yaml_data
                         )
 
-                        new_comparable_content = (
-                            comparison_engine.extract_comparable_content_from_scraped_yaml(
-                                raw_yaml_data=final_yaml_data,
-                                media_name=media_name,
-                                media_type=media_type,
-                                tmdb_id=tmdb_id,
-                                tvdb_id_for_tv=tvdb_id_for_tv,
-                                yaml_parser=yaml_parser,
-                                remove_paths=None,
-                            )
+                        new_comparable_content = comparison_engine.extract_comparable_content_from_scraped_yaml(
+                            raw_yaml_data=final_yaml_data,
+                            media_name=media_name,
+                            media_type=media_type,
+                            tmdb_id=tmdb_id,
+                            tvdb_id_for_tv=tvdb_id_for_tv,
+                            yaml_parser=yaml_parser,
+                            remove_paths=None,
                         )
                 else:
                     final_yaml_data = new_raw_yaml
@@ -551,7 +630,7 @@ def _process_single_media_item(
             if media_type == "tv" and tvdb_id_for_tv
             else f"TMDB: {tmdb_id}"
         )
-        updated_titles_list.append(f"{media_name} ({log_id_str})")
+        safe_append(updated_titles_list, f"{media_name} ({log_id_str})")
 
     for folder_name in folder_map_for_media.get(media_id_from_folder, []):
         new_data[folder_name][tmdb_id] = final_yaml_data
@@ -583,32 +662,80 @@ def run(
     plex_url=None,
     plex_token=None,
     plex_libraries=None,
+    disable_cache=False,
+    clear_cache=False,
+    cache_dir="./out",
 ):
     """Main execution function."""
     global cache, new_data, folder_bulk_data, root_folder_global
 
+    # Update global cache configuration
+    global cache_config
+    cache_config = CacheConfig(
+        disable_cache=disable_cache, clear_cache=clear_cache, cache_dir=cache_dir
+    )
+
     import time
 
     start_time = time.time()
-
     logger.info("🚀 MEDIUX SCRAPER STARTED")
-    logger.info(
-        f"👤 Processing {len(root_folder_global) if isinstance(root_folder_global, list) else 1} folder(s)"
+
+    folder_count = (
+        len(root_folder_global) if isinstance(root_folder_global, list) else 1
     )
+    logger.info(f"📂 Processing {folder_count} folder(s)")
+
     if selected_folders:
-        logger.info(f"👤 Target folders: {', '.join(selected_folders)}")
+        logger.debug(f"Target folders: {', '.join(selected_folders)}")
     if preferred_users:
-        logger.info(f"👤 Preferred users: {', '.join(preferred_users)}")
+        logger.debug(f"Preferred users: {', '.join(preferred_users)}")
     if excluded_users:
-        logger.info(f"👤 Excluded users: {', '.join(excluded_users)}")
+        logger.debug(f"Excluded users: {', '.join(excluded_users)}")
 
     # Phase 1: Setup and Configuration
     separator = "=" * 60
     logger.info(f"\n{separator}\n🔧 SETUP & CONFIGURATION\n{separator}")
-    logger.info("👤 Loading configuration and cache...")
 
-    cache_manager = CacheManager()
-    cache = cache_manager.load_cache()
+    # Handle cache management
+    if cache_config.clear_cache:
+        logger.info("🧹 Clearing existing cache files...")
+        cache_files = [
+            cache_config.get_cache_file_path("tmdb_cache.pkl"),
+            cache_config.get_cache_file_path("intelligent_cache.pkl"),
+        ]
+        for cache_file in cache_files:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+                logger.info(f"✅ Removed cache file: {cache_file}")
+
+    if cache_config.disable_cache:
+        logger.info("🚫 Cache loading and saving disabled - fresh start each time")
+        cache = {}
+
+        # Create a dummy intelligent cache manager that does nothing
+        class DummyCacheManager:
+            def load_cache(self):
+                pass
+
+            def save_cache(self):
+                pass
+
+            def get_cache_stats(self):
+                return {}
+
+        intelligent_cache_manager = DummyCacheManager()
+    else:
+        logger.info("👤 Loading configuration and cache...")
+        cache_manager = CacheManager()
+        cache = cache_manager.load_cache()
+
+        # Load intelligent cache
+        from modules.intelligent_cache import get_cache_manager
+
+        intelligent_cache_manager = get_cache_manager()
+        intelligent_cache_manager.load_cache(
+            cache_config.get_cache_file_path("intelligent_cache.pkl")
+        )
 
     root_folders_list = (
         root_folder_global
@@ -705,6 +832,9 @@ def run(
                         fixed_titles_list=fixed_titles_list,
                         disable_season_fix=disable_season_fix,
                         remove_paths=remove_paths,
+                        shared_cache=cache,
+                        shared_new_data=new_data,
+                        shared_folder_bulk_data=folder_bulk_data,
                     )
                 except (ReadTimeoutError, TimeoutException):
                     logger.error(
@@ -757,6 +887,27 @@ def run(
         if media_ids_to_process:
             avg_time = duration / len(media_ids_to_process)
             logger.info(f"📈 Average time per item: {avg_time:.1f} seconds")
+
+        # Cache performance summary
+        if intelligent_cache_manager and hasattr(
+            intelligent_cache_manager, "get_cache_stats"
+        ):
+            try:
+                cache_stats = intelligent_cache_manager.get_cache_stats()
+                if cache_stats:
+                    logger.info("📊 Cache Performance:")
+                    for namespace, stats in cache_stats.items():
+                        if stats.get("hits", 0) > 0 or stats.get("misses", 0) > 0:
+                            total = stats.get("hits", 0) + stats.get("misses", 0)
+                            hit_rate = (
+                                (stats.get("hits", 0) / total * 100) if total > 0 else 0
+                            )
+                            logger.info(
+                                f"   • {namespace}: {stats.get('hits', 0)} hits, {stats.get('misses', 0)} misses ({hit_rate:.1f}% hit rate)"
+                            )
+                    logger.info(f"   • Cache file: ./out/intelligent_cache.pkl")
+            except Exception as e:
+                logger.debug(f"Could not retrieve cache stats: {e}")
 
         # Discord notifications
         if updated_titles_list and discord_webhook_url_global:
@@ -859,6 +1010,9 @@ def main():
             "plex_url": app_settings["plex_url"],
             "plex_token": app_settings["plex_token"],
             "plex_libraries": app_settings["plex_libraries"],
+            "disable_cache": app_settings.get("disable_cache", False),
+            "clear_cache": app_settings.get("clear_cache", False),
+            "cache_dir": app_settings.get("cache_dir", "./out"),
         }
 
         if app_settings["cron_expression"]:
@@ -881,4 +1035,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

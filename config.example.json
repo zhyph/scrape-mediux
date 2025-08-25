@@ -20,5 +20,8 @@
   "excluded_users": [],
   "discord_webhook_url": "",
   "disable_season_fix": false,
-  "remove_paths": []
+  "remove_paths": [],
+  "disable_cache": false,
+  "clear_cache": false,
+  "cache_dir": "./out"
 }

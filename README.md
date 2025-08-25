@@ -10,13 +10,18 @@
     - [Copy Example Configuration](#copy-example-configuration)
     - [Plex Configuration](#plex-configuration)
     - [Configuration Fields](#configuration-fields)
-    - [Field Descriptions](#field-descriptions)
+      - [Field Descriptions](#field-descriptions)
   - [YAML Field Filtering](#yaml-field-filtering)
     - [How It Works](#how-it-works)
     - [Filtering Examples](#filtering-examples)
     - [Pattern Matching Rules](#pattern-matching-rules)
     - [Use Cases](#use-cases)
     - [Important Notes](#important-notes)
+    - [YAML Structure Validation](#yaml-structure-validation)
+  - [Troubleshooting](#troubleshooting)
+    - [Cache Issues](#cache-issues)
+    - [YAML Issues](#yaml-issues)
+    - [Browser Issues](#browser-issues)
   - [Usage (Local)](#usage-local)
     - [Command-line Arguments (Optional)](#command-line-arguments-optional)
   - [Usage (Docker)](#usage-docker)
@@ -31,13 +36,15 @@ This script automates the process of scraping movie and TV show poster data from
 
 - **Automatic login** to Mediux.
 - **Data scraping** from the Mediux website based on TMDB IDs retrieved via IMDb, TVDB or directly TMDB IDs.
-- **Caching** to avoid redundant API calls.
+- **Advanced caching system** with intelligent TTL-based cache management to avoid redundant API calls.
+- **Progress tracking** with detailed progress bars and real-time status updates.
 - **Extracts and saves** unique Mediux set URLs to a text file.
 - **Handles early termination** and ensures all processed data is saved.
 - **Outputs files for kometa and plex-poster-set-helper**
   - You can use the `ppsh-bulk.txt` content together with bbrown430 script [plex-poster-set-helper](https://github.com/bbrown430/plex-poster-set-helper) to automatically download the posters to your Plex library.
   - Or, you can use the `*_data.txt` content together with the [kometa](https://github.com/Kometa-Team/Kometa) script to automatically download the posters to your Plex library. For more information, check this [kometa wiki page](https://kometa.wiki/en/latest/kometa/guides/mediux/?h=mediux).
 - **YAML field filtering** with path-based pattern matching to selectively remove unwanted fields from the output.
+- **YAML structure validation** with automatic fix for common formatting issues.
 
 ## Requirements
 
@@ -107,7 +114,10 @@ cp config.example.json config.json
   "excluded_users": ["UserToIgnore1", "UserToIgnore2"],
   "discord_webhook_url": "your_discord_webhook_url",
   "disable_season_fix": false,
-  "remove_paths": []
+  "remove_paths": [],
+  "disable_cache": false,
+  "clear_cache": false,
+  "cache_dir": "./out"
 }
 ```
 
@@ -135,6 +145,9 @@ cp config.example.json config.json
 - **`discord_webhook_url`**: The URL for a Discord webhook. If provided, the script will send a notification listing newly processed or updated titles to this webhook.
 - **`disable_season_fix`**: A boolean value (`true` or `false`) to disable the automatic fix for malformed seasons YAML structure in TV shows. When set to `true`, the script will not attempt to fix structural issues where multiple 'episodes:' blocks appear directly under 'seasons:'. Defaults to `false` (automatic fix enabled).
 - **`remove_paths`**: List of YAML field path patterns to remove from the output. Supports wildcard matching with `*`. Examples: `["*.url_background", "seasons.*.url_poster"]`. Defaults to `[]` (no filtering).
+- **`disable_cache`**: A boolean value (`true` or `false`) to disable loading and saving of caches (fresh start each time). Can also be set via `--disable_cache` command line option. Defaults to `false`.
+- **`clear_cache`**: A boolean value (`true` or `false`) to clear existing cache files before running. Can also be set via `--clear_cache` command line option. Defaults to `false`.
+- **`cache_dir`**: Directory to store cache files. Can also be set via `--cache_dir` command line option. Defaults to `"./out"`.
 
 </details>
 
@@ -187,7 +200,33 @@ python main.py --remove_paths "*.url_background" "seasons.*.url_poster"
 
 - **Comment Preservation**: When using `--remove_paths`, some YAML comments may be lost due to the technical nature of parsing and filtering YAML data. For maximum comment preservation, avoid using the filtering feature.
 
+### YAML Structure Validation
+
+The script automatically detects and fixes common YAML structure issues:
+
+- **Malformed Seasons**: Fixes duplicate 'episodes:' blocks under 'seasons:'
+- **Validation**: Ensures YAML structure is valid before saving
+- **Logging**: Reports when fixes are applied (check logs for auto-fix messages)
+
 </details>
+
+## Troubleshooting
+
+### Cache Issues
+
+- **0% Hit Rate**: Normal for first run or after cache clearing
+- **Cache Not Loading**: Check `./out/` directory permissions
+- **Slow Performance**: Ensure cache files are accessible
+
+### YAML Issues
+
+- **Malformed Structure**: Check logs for auto-fix messages
+- **Missing Data**: Verify Mediux page accessibility
+
+### Browser Issues
+
+- **Connection Failed**: Check Chrome/Chromium installation
+- **Profile Issues**: Clear `./profile` directory if login fails
 
 ## Usage (Local)
 
@@ -228,6 +267,9 @@ If any arguments are provided, they will override the corresponding values in th
 - `--copy_only`: Only copy files to the output_dir and exit. This option skips the scraping process and only performs the file copying operation.
 - `--disable_season_fix`: Disable automatic fix for malformed seasons YAML structure in TV shows. When enabled, the script will not attempt to automatically correct structural issues in YAML.
 - `--remove_paths`: List of YAML field path patterns to remove from the output. Supports wildcard matching with `*`. Examples: `"*.url_background" "seasons.*.url_poster"`. Note: Basic field names (like `url_poster`) only remove fields at the root and season levels to preserve episode structure.
+- `--disable_cache`: Disable loading and saving of caches (fresh start each time).
+- `--clear_cache`: Clear existing cache files before running.
+- `--cache_dir`: Directory to store cache files (default: ./out).
 
 ## Usage (Docker)
 

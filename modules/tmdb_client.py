@@ -14,6 +14,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 
+# Import intelligent cache
+from modules.intelligent_cache import get_cache_manager
+
 
 class TitleSimilarityCalculator:
     """Handles title similarity calculations for media matching."""
@@ -76,7 +79,7 @@ class TMDBClient:
         Returns:
             Tuple of (tv_exists, movie_exists, tv_response, movie_response)
         """
-        self.logger.info(f"Using TMDB ID {media_id} directly.")
+        self.logger.debug(f"Using TMDB ID {media_id} directly.")
 
         tv_url = f"{self.BASE_URL}/tv/{media_id}"
         movie_url = f"{self.BASE_URL}/movie/{media_id}"
@@ -161,7 +164,7 @@ class TMDBClient:
         Returns:
             Tuple of (movie_results, tv_results)
         """
-        self.logger.info(
+        self.logger.debug(
             f"Fetching TMDB ID for {external_source} {media_id} from TMDB API..."
         )
         url = f"{self.BASE_URL}/find/{media_id}?external_source={external_source}"
@@ -250,15 +253,28 @@ class TMDBClient:
         Args:
             media_id: Media ID to look up
             external_source: Type of external source (imdb_id, tvdb_id, tmdb_id)
-            cache: Cache dictionary for storing results
+            cache: Cache dictionary for storing results (backward compatibility)
             media_name: Optional media name for conflict resolution
 
         Returns:
             Tuple of (tmdb_id, media_type) or (None, None) if not found
         """
+        # Try intelligent cache first
+        cache_manager = get_cache_manager()
+        cached_result = cache_manager.get_tmdb_id(
+            media_id, external_source, media_name or ""
+        )
+
+        if cached_result:
+            self.logger.info(
+                f"Fetching TMDB ID for {external_source} {media_id} from intelligent cache."
+            )
+            return cached_result
+
+        # Fallback to legacy cache for backward compatibility
         if media_id in cache:
             self.logger.info(
-                f"Fetching TMDB ID for {external_source} {media_id} from cache."
+                f"Fetching TMDB ID for {external_source} {media_id} from legacy cache."
             )
             return cache[media_id]
 
@@ -308,8 +324,14 @@ class TMDBClient:
 
         if tmdb_id:
             tmdb_id = str(tmdb_id)
+
+        # Store in both intelligent cache and legacy cache for backward compatibility
+        cache_manager = get_cache_manager()
+        if tmdb_id and media_type:
+            cache_manager.set_tmdb_id(media_id, external_source, tmdb_id, media_type)
         cache[media_id] = (tmdb_id, media_type)
-        self.logger.info(
+
+        self.logger.debug(
             f"TMDB ID for {external_source} {media_id}: {tmdb_id}, Media Type: {media_type}"
         )
         return tmdb_id, media_type

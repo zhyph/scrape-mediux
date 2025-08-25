@@ -15,6 +15,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 
 logger = logging.getLogger(__name__)
 
+# Import intelligent cache
+from modules.intelligent_cache import get_cache_manager
+
 
 class DiscordNotifier:
     """Handles Discord webhook notifications."""
@@ -79,8 +82,16 @@ class SonarrClient:
             Tuple of (tvdb_id, ended_status) or (None, None) if not found
         """
         self.logger.info(f"Checking series status for {media_name}...")
-        url = f"{self.endpoint}/api/v3/series/lookup?term={media_name}"
 
+        # Try intelligent cache first
+        cache_manager = get_cache_manager()
+        cached_result = cache_manager.get_sonarr_status(media_name, tmdb_id)
+
+        if cached_result:
+            self.logger.info(f"Sonarr cache hit for {media_name}")
+            return cached_result
+
+        url = f"{self.endpoint}/api/v3/series/lookup?term={media_name}"
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         data = response.json()
@@ -99,7 +110,13 @@ class SonarrClient:
                         self.logger.info(
                             f"Series status for {media_name}: TVDB ID={tvdb_id}, Ended={ended}."
                         )
-                        return str(tvdb_id) if tvdb_id else None, ended
+
+                        # Cache the result
+                        result = (str(tvdb_id) if tvdb_id else None, ended)
+                        cache_manager.set_sonarr_status(
+                            media_name, tmdb_id, result[0], result[1]
+                        )
+                        return result
                 self.logger.warning(
                     f"No series with TMDB ID {tmdb_id} found for '{media_name}'. Falling back to first result."
                 )
@@ -110,9 +127,15 @@ class SonarrClient:
             self.logger.info(
                 f"Series status for {media_name} (from first result): TVDB ID={tvdb_id}, Ended={ended}."
             )
-            return str(tvdb_id) if tvdb_id else None, ended
+
+            # Cache the result
+            result = (str(tvdb_id) if tvdb_id else None, ended)
+            cache_manager.set_sonarr_status(media_name, tmdb_id, result[0], result[1])
+            return result
 
         self.logger.warning(f"No series information found for {media_name}.")
+        # Cache the negative result to avoid repeated API calls
+        cache_manager.set_sonarr_status(media_name, tmdb_id, None, None)
         return None, None
 
 
@@ -137,6 +160,17 @@ class PlexClient:
             Tuple of (media_ids_list, folder_map)
         """
         self.logger.info("Fetching media IDs from Plex API...")
+
+        # Try intelligent cache first
+        cache_manager = get_cache_manager()
+        cache_key = f"plex:{':'.join(sorted(libraries))}"
+
+        cached_result = cache_manager.cache.get("media_ids", cache_key)
+        if cached_result:
+            self.logger.info("Plex media IDs cache hit")
+            return cached_result
+
+        # Cache miss - perform the API calls
         try:
             from plexapi.server import PlexServer
         except ImportError:
@@ -192,7 +226,11 @@ class PlexClient:
                 continue
 
         self.logger.info(f"Found {len(media_ids)} media IDs from Plex.")
-        return media_ids, folder_map
+        result = (media_ids, folder_map)
+
+        # Cache the result for future use
+        cache_manager.cache.set("media_ids", cache_key, result)
+        return result
 
     def list_available_libraries(self) -> List[str]:
         """
@@ -242,6 +280,20 @@ class MediaDiscoveryService:
         """
         self.logger.info("Fetching media IDs from folder names...")
 
+        # Try intelligent cache first
+        cache_manager = get_cache_manager()
+        root_key = (
+            str(root_folder) if isinstance(root_folder, str) else ":".join(root_folder)
+        )
+        cache_key = f"{root_key}:{selected_folders or []}"
+
+        cached_result = cache_manager.cache.get("media_ids", cache_key)
+        if cached_result:
+            self.logger.info("Media IDs cache hit for folder scan")
+            return cached_result
+
+        # Cache miss - perform the scan
+
         import os
         from modules.config import validate_path
 
@@ -270,7 +322,11 @@ class MediaDiscoveryService:
                     )
 
         self.logger.info(f"Found media IDs: {media_ids}")
-        return media_ids, folder_map
+        result = (media_ids, folder_map)
+
+        # Cache the result for future use
+        cache_manager.cache.set("media_ids", cache_key, result)
+        return result
 
     def _extract_media_info_from_subfolder(
         self, subfolder: str
