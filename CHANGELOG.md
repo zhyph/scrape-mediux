@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [25.08.26.2]
+
+### Added
+
+- **Comprehensive cache configuration system** with intelligent settings management:
+  - Added configurable parameters for `max_cache_size`, `default_cache_ttl`, `max_cache_memory_mb`, and `memory_check_interval`
+  - Enhanced `CacheConfig` class with namespace-specific configurations and intelligent defaults
+  - Added `create_cache_config()` method to `ConfigManager` for seamless configuration integration
+  - Added `create_cache_manager_from_config()` function for programmatic cache manager creation
+  - Multi-source configuration support (JSON, environment variables, command-line arguments)
+- **Advanced cache management features**:
+  - Memory-aware cache cleanup with configurable thresholds
+  - Optimized namespace configurations for different data types (TMDB API, Sonarr API, YAML data, media IDs)
+  - Intelligent cache key generation and TTL management
+  - Comprehensive cache statistics and monitoring
+
+### Changed
+
+- **Enhanced IntelligentCache class** to accept configuration parameters instead of hardcoded values:
+  - Added `memory_check_interval` parameter for customizable memory monitoring
+  - Improved cache initialization with configurable settings
+  - Better resource management and memory optimization
+- **Updated NamespaceCache class** with configurable namespace settings:
+  - Dynamic namespace configuration based on use case
+  - Optimized TTL settings for different data types
+  - Improved cache performance with tailored configurations
+- **Enhanced ConfigManager** to handle cache configuration:
+  - Added command-line arguments for all cache settings
+  - Integrated cache configuration resolution with priority system
+  - Added cache configuration creation methods
+
+### Fixed
+
+- **Cache configuration integration** ensuring all parameters are properly passed through the system
+- **Memory check interval reference** updated to use the new configurable parameter
+
 ## [25.08.26.1]
 
 ### Added

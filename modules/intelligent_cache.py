@@ -43,7 +43,11 @@ class IntelligentCache:
     """Intelligent cache with TTL, memory limits, and statistics."""
 
     def __init__(
-        self, max_size: int = 1000, default_ttl: int = 3600, max_memory_mb: float = 50.0
+        self,
+        max_size: int = 1000,
+        default_ttl: int = 3600,
+        max_memory_mb: float = 50.0,
+        memory_check_interval: int = 100
     ):
         """
         Initialize intelligent cache.
@@ -52,14 +56,15 @@ class IntelligentCache:
             max_size: Maximum number of cache entries
             default_ttl: Default TTL in seconds for cache entries
             max_memory_mb: Maximum memory usage in MB before triggering cleanup
+            memory_check_interval: Check memory usage every N operations
         """
         self.max_size = max_size
         self.default_ttl = default_ttl
         self.max_memory_mb = max_memory_mb
+        self.memory_check_interval = memory_check_interval
         self.cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self.lock = threading.RLock()
         self.stats = {"hits": 0, "misses": 0, "evictions": 0, "size": 0}
-        self._memory_check_interval = 100  # Check memory every N operations
         self._operation_count = 0
         self._last_memory_cleanup = time.time()
 
@@ -105,7 +110,7 @@ class IntelligentCache:
             else:
                 # Check memory usage periodically
                 self._operation_count += 1
-                if self._operation_count % self._memory_check_interval == 0:
+                if self._operation_count % self.memory_check_interval == 0:
                     self._check_memory_usage()
 
                 # Add new entry
@@ -215,24 +220,81 @@ class IntelligentCache:
 class NamespaceCache:
     """Cache with multiple namespaces for different data types."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        default_max_size: int = 1000,
+        default_ttl: int = 3600,
+        max_memory_mb: float = 50.0,
+        memory_check_interval: int = 100,
+        namespace_configs: Optional[Dict[str, Dict]] = None
+    ):
+        """
+        Initialize namespace cache.
+
+        Args:
+            default_max_size: Default maximum cache size for namespaces
+            default_ttl: Default TTL for namespaces
+            max_memory_mb: Maximum memory usage in MB before triggering cleanup
+            memory_check_interval: Check memory usage every N operations
+            namespace_configs: Custom configuration for specific namespaces
+        """
         self.namespaces: Dict[str, IntelligentCache] = {}
         self.lock = threading.RLock()
         self.logger = logging.getLogger(__name__)
+
+        # Store default configuration
+        self.default_max_size = default_max_size
+        self.default_ttl = default_ttl
+        self.max_memory_mb = max_memory_mb
+        self.memory_check_interval = memory_check_interval
+
+        # Namespace-specific configurations
+        self.namespace_configs = namespace_configs or self._get_default_namespace_configs()
+
+    def _get_default_namespace_configs(self) -> Dict[str, Dict]:
+        """Get default namespace configurations."""
+        return {
+            "tmdb_api": {
+                "max_size": 5000,
+                "default_ttl": None,  # permanent - TMDB IDs are inherently stable
+                "description": "TMDB API responses - permanent cache for stable IDs"
+            },
+            "sonarr_api": {
+                "max_size": 2000,
+                "default_ttl": 43200,  # 12 hours - series status changes are moderate
+                "description": "Sonarr API responses - moderate change frequency"
+            },
+            "yaml_data": {
+                "max_size": 3000,
+                "default_ttl": 21600,  # 6 hours - processed YAML needs periodic refresh
+                "description": "Processed YAML data - periodic refresh needed"
+            },
+            "media_ids": {
+                "max_size": 10000,
+                "default_ttl": None,  # permanent - folder structure IDs are stable
+                "description": "Media folder IDs - stable folder structure"
+            }
+        }
+
+    def get_namespace_config(self, namespace: str) -> Dict:
+        """Get configuration for a specific namespace."""
+        return self.namespace_configs.get(namespace, {
+            "max_size": self.default_max_size,
+            "default_ttl": self.default_ttl,
+            "description": f"Default configuration for {namespace}"
+        })
 
     def get_namespace(self, name: str) -> IntelligentCache:
         """Get or create a cache namespace."""
         with self.lock:
             if name not in self.namespaces:
-                # Configure different TTLs for different namespaces - optimized for daily runs
-                ttl_config = {
-                    "tmdb_api": None,  # permanent - TMDB IDs are inherently stable
-                    "sonarr_api": 43200,  # 12 hours - series status changes are moderate
-                    "yaml_data": 21600,  # 6 hours - processed YAML needs periodic refresh
-                    "media_ids": None,  # permanent - folder structure IDs are stable
-                }
-                ttl = ttl_config.get(name, 3600)  # Default 1 hour TTL
-                self.namespaces[name] = IntelligentCache(max_size=5000, default_ttl=ttl)
+                config = self.get_namespace_config(name)
+                self.namespaces[name] = IntelligentCache(
+                    max_size=config["max_size"],
+                    default_ttl=config["default_ttl"],
+                    max_memory_mb=self.max_memory_mb,
+                    memory_check_interval=self.memory_check_interval
+                )
             return self.namespaces[name]
 
     def get(self, namespace: str, key: str, default: Any = None) -> Any:
@@ -407,8 +469,31 @@ class NamespaceCache:
 class CacheManager:
     """High-level cache manager with intelligent caching strategies."""
 
-    def __init__(self):
-        self.cache = NamespaceCache()
+    def __init__(
+        self,
+        default_max_size: int = 1000,
+        default_ttl: int = 3600,
+        max_memory_mb: float = 50.0,
+        memory_check_interval: int = 100,
+        namespace_configs: Optional[Dict[str, Dict]] = None
+    ):
+        """
+        Initialize cache manager.
+
+        Args:
+            default_max_size: Default maximum cache size for namespaces
+            default_ttl: Default TTL for namespaces
+            max_memory_mb: Maximum memory usage in MB before triggering cleanup
+            memory_check_interval: Check memory usage every N operations
+            namespace_configs: Custom configuration for specific namespaces
+        """
+        self.cache = NamespaceCache(
+            default_max_size=default_max_size,
+            default_ttl=default_ttl,
+            max_memory_mb=max_memory_mb,
+            memory_check_interval=memory_check_interval,
+            namespace_configs=namespace_configs
+        )
         self.logger = logging.getLogger(__name__)
 
     def get_tmdb_id(
@@ -555,10 +640,43 @@ class CacheManager:
                 self.logger.info(f"No permanent entries found in {namespace}")
 
 
-# Global cache manager instance
+# Global cache manager instance with default settings
 _global_cache_manager = CacheManager()
 
 
 def get_cache_manager() -> CacheManager:
     """Get the global cache manager instance."""
     return _global_cache_manager
+
+
+def create_cache_manager_from_config(
+    max_cache_size: int = 1000,
+    default_cache_ttl: int = 3600,
+    max_cache_memory_mb: float = 50.0,
+    memory_check_interval: int = 100,
+    namespace_configs: Optional[Dict[str, Dict]] = None
+) -> CacheManager:
+    """
+    Create a new CacheManager instance with specific configuration.
+
+    This function allows creating cache managers with custom settings,
+    useful when you need multiple cache instances or want to override
+    the global cache manager settings.
+
+    Args:
+        max_cache_size: Default maximum cache size for namespaces
+        default_cache_ttl: Default TTL for namespaces
+        max_cache_memory_mb: Maximum memory usage in MB before triggering cleanup
+        memory_check_interval: Check memory usage every N operations
+        namespace_configs: Custom configuration for specific namespaces
+
+    Returns:
+        Configured CacheManager instance
+    """
+    return CacheManager(
+        default_max_size=max_cache_size,
+        default_ttl=default_cache_ttl,
+        max_memory_mb=max_cache_memory_mb,
+        memory_check_interval=memory_check_interval,
+        namespace_configs=namespace_configs
+    )

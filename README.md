@@ -36,7 +36,7 @@ This script automates the process of scraping movie and TV show poster data from
 
 - **Automatic login** to Mediux.
 - **Data scraping** from the Mediux website based on TMDB IDs retrieved via IMDb, TVDB or directly TMDB IDs.
-- **Advanced caching system** with intelligent TTL-based cache management to avoid redundant API calls.
+- **Advanced caching system** with intelligent TTL-based cache management, memory limits, and configurable settings to avoid redundant API calls and optimize performance.
 - **Progress tracking** with detailed progress bars and real-time status updates.
 - **Extracts and saves** unique Mediux set URLs to a text file.
 - **Handles early termination** and ensures all processed data is saved.
@@ -117,7 +117,11 @@ cp config.example.json config.json
   "remove_paths": [],
   "disable_cache": false,
   "clear_cache": false,
-  "cache_dir": "./out"
+  "cache_dir": "./out",
+  "max_cache_size": 1000,
+  "default_cache_ttl": 3600,
+  "max_cache_memory_mb": 50.0,
+  "memory_check_interval": 100
 }
 ```
 
@@ -148,6 +152,10 @@ cp config.example.json config.json
 - **`disable_cache`**: A boolean value (`true` or `false`) to disable loading and saving of caches (fresh start each time). Can also be set via `--disable_cache` command line option. Defaults to `false`.
 - **`clear_cache`**: A boolean value (`true` or `false`) to clear existing cache files before running. Can also be set via `--clear_cache` command line option. Defaults to `false`.
 - **`cache_dir`**: Directory to store cache files. Can also be set via `--cache_dir` command line option. Defaults to `"./out"`.
+- **`max_cache_size`**: Maximum number of cache entries per namespace. Can also be set via `--max_cache_size` command line option. Defaults to `1000`.
+- **`default_cache_ttl`**: Default TTL in seconds for cache entries. Can also be set via `--default_cache_ttl` command line option. Defaults to `3600` (1 hour).
+- **`max_cache_memory_mb`**: Maximum memory usage in MB before triggering cleanup. Can also be set via `--max_cache_memory_mb` command line option. Defaults to `50.0`.
+- **`memory_check_interval`**: Check memory usage every N operations. Can also be set via `--memory_check_interval` command line option. Defaults to `100`.
 
 </details>
 
@@ -270,6 +278,10 @@ If any arguments are provided, they will override the corresponding values in th
 - `--disable_cache`: Disable loading and saving of caches (fresh start each time).
 - `--clear_cache`: Clear existing cache files before running.
 - `--cache_dir`: Directory to store cache files (default: ./out).
+- `--max_cache_size`: Maximum number of cache entries per namespace (default: 1000).
+- `--default_cache_ttl`: Default TTL in seconds for cache entries (default: 3600).
+- `--max_cache_memory_mb`: Maximum memory usage in MB before triggering cleanup (default: 50.0).
+- `--memory_check_interval`: Check memory usage every N operations (default: 100).
 
 ## Usage (Docker)
 

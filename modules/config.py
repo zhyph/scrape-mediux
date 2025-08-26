@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Union
 
 from ruamel import yaml
 
+from .cache_config import CacheConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -354,6 +356,28 @@ class ConfigManager:
             help="Directory to store cache files (default: ./out)",
         )
 
+        # Intelligent cache settings
+        parser.add_argument(
+            "--max_cache_size",
+            type=int,
+            help="Maximum number of cache entries (default: 1000)",
+        )
+        parser.add_argument(
+            "--default_cache_ttl",
+            type=int,
+            help="Default TTL in seconds for cache entries (default: 3600)",
+        )
+        parser.add_argument(
+            "--max_cache_memory_mb",
+            type=float,
+            help="Maximum memory usage in MB before triggering cleanup (default: 50.0)",
+        )
+        parser.add_argument(
+            "--memory_check_interval",
+            type=int,
+            help="Check memory usage every N operations (default: 100)",
+        )
+
         return parser
 
     def parse_arguments_and_load_config(self) -> Dict[str, Any]:
@@ -573,9 +597,57 @@ class ConfigManager:
                 file_config=file_config,
                 default_val="./out",
             ),
+            "max_cache_size": self._resolve_config_value(
+                arg_val=args.max_cache_size,
+                env_var_name="MAX_CACHE_SIZE",
+                config_key="max_cache_size",
+                file_config=file_config,
+                default_val=1000,
+            ),
+            "default_cache_ttl": self._resolve_config_value(
+                arg_val=args.default_cache_ttl,
+                env_var_name="DEFAULT_CACHE_TTL",
+                config_key="default_cache_ttl",
+                file_config=file_config,
+                default_val=3600,
+            ),
+            "max_cache_memory_mb": self._resolve_config_value(
+                arg_val=args.max_cache_memory_mb,
+                env_var_name="MAX_CACHE_MEMORY_MB",
+                config_key="max_cache_memory_mb",
+                file_config=file_config,
+                default_val=50.0,
+            ),
+            "memory_check_interval": self._resolve_config_value(
+                arg_val=args.memory_check_interval,
+                env_var_name="MEMORY_CHECK_INTERVAL",
+                config_key="memory_check_interval",
+                file_config=file_config,
+                default_val=100,
+            ),
         }
 
         return app_config
+
+    def create_cache_config(self, app_config: Dict[str, Any]) -> CacheConfig:
+        """
+        Create a CacheConfig instance from the application configuration.
+
+        Args:
+            app_config: Application configuration dictionary
+
+        Returns:
+            CacheConfig instance with configured settings
+        """
+        return CacheConfig(
+            disable_cache=app_config.get("disable_cache", False),
+            clear_cache=app_config.get("clear_cache", False),
+            cache_dir=app_config.get("cache_dir", "./out"),
+            max_cache_size=app_config.get("max_cache_size", 1000),
+            default_ttl=app_config.get("default_cache_ttl", 3600),
+            max_memory_mb=app_config.get("max_cache_memory_mb", 50.0),
+            memory_check_interval=app_config.get("memory_check_interval", 100),
+        )
 
 
 def validate_path(path: Union[str, List[str]], description: str = "Path") -> None:
