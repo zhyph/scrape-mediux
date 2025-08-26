@@ -36,13 +36,13 @@ def main():
 
     # Handle copy-only mode
     if app_settings.get("copy_only"):
-        if not app_settings["output_dir_val"]:
+        if not app_settings["output_dir"]:
             logger.error("No output_dir specified for --copy_only mode.")
             exit(1)
         from modules.file_manager import FileWriter
 
         file_writer = FileWriter()
-        file_writer._copy_to_output_dir(app_settings["output_dir_val"])
+        file_writer._copy_to_output_dir(app_settings["output_dir"])
         logger.info("Copy-only mode complete. Exiting.")
         exit(0)
 
@@ -59,8 +59,9 @@ def main():
             "nickname": app_settings["nickname"],
             "sonarr_api_key": app_settings["sonarr_api_key"],
             "sonarr_endpoint": app_settings["sonarr_endpoint"],
-            "root_folder_global": app_settings["root_folder_val"],
-            "output_dir_global": app_settings["output_dir_val"],
+            "root_folder_global": app_settings["root_folder"],
+            "config_path": app_settings["config_path"],
+            "output_dir_global": app_settings["output_dir"],
             "discord_webhook_url_global": app_settings.get("discord_webhook_url"),
             "selected_folders": app_settings["selected_folders"],
             "headless": app_settings["headless"],
@@ -71,11 +72,9 @@ def main():
             "excluded_users": app_settings["excluded_users"],
             "disable_season_fix": app_settings["disable_season_fix"],
             "remove_paths": app_settings["remove_paths"],
-            "plex_url": app_settings.get("plex_url") or app_settings.get("zplex_url"),
-            "plex_token": app_settings.get("plex_token")
-            or app_settings.get("zplex_token"),
-            "plex_libraries": app_settings.get("plex_libraries")
-            or app_settings.get("zplex_libraries"),
+            "plex_url": app_settings.get("plex_url"),
+            "plex_token": app_settings.get("plex_token"),
+            "plex_libraries": app_settings.get("plex_libraries"),
             "disable_cache": app_settings.get("disable_cache", False),
             "clear_cache": app_settings.get("clear_cache", False),
             "cache_dir": app_settings.get("cache_dir", "./out"),

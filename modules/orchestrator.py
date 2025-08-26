@@ -30,6 +30,7 @@ def run(
     sonarr_api_key,
     sonarr_endpoint,
     root_folder_global,
+    config_path=None,
     output_dir_global=None,
     discord_webhook_url_global=None,
     selected_folders=None,
@@ -191,9 +192,7 @@ def run(
     try:
         from modules.scraper import MediuxLoginManager, WebDriverManager
 
-        webdriver_manager = WebDriverManager(
-            None
-        )  # config_path will be set later if needed
+        webdriver_manager = WebDriverManager(config_path)
         driver = webdriver_manager.init_driver(
             headless=headless,
             profile_path=profile_path,

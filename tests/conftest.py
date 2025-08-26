@@ -51,9 +51,9 @@ def sample_config():
         "clear_cache": False,
         "cache_dir": "./out",
         "config_path": "/config",
-        "root_folder_val": ["/test/media"],
+        "root_folder": ["/test/media"],
         "selected_folders": [],
-        "output_dir_val": "/test/output",
+        "output_dir": "/test/output",
         "TZ": "UTC",
     }
 

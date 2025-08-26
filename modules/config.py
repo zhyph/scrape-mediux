@@ -374,24 +374,22 @@ class ConfigManager:
             raise
 
         # Process root_folder (can be comma-separated string or list)
-        root_folder_val = self._resolve_config_value(
+        root_folder = self._resolve_config_value(
             arg_val=args.root_folder,
             env_var_name="ROOT_FOLDER",
             config_key="root_folder",
             file_config=file_config,
         )
 
-        if isinstance(root_folder_val, str):
-            root_folder_val = [
-                rf.strip() for rf in root_folder_val.split(",") if rf.strip()
-            ]
-        elif root_folder_val is None:
-            root_folder_val = []
+        if isinstance(root_folder, str):
+            root_folder = [rf.strip() for rf in root_folder.split(",") if rf.strip()]
+        elif root_folder is None:
+            root_folder = []
 
         # Build complete configuration dictionary
         app_config = {
-            "config_path_val": args.config_path,
-            "root_folder_val": root_folder_val,
+            "config_path": args.config_path,
+            "root_folder": root_folder,
             "api_key": self._resolve_config_value(
                 arg_val=args.api_key,
                 env_var_name="API_KEY",
@@ -515,7 +513,7 @@ class ConfigManager:
                 config_key="chromedriver_path",
                 file_config=file_config,
             ),
-            "output_dir_val": self._resolve_config_value(
+            "output_dir": self._resolve_config_value(
                 arg_val=args.output_dir,
                 env_var_name="OUTPUT_DIR",
                 config_key="output_dir",

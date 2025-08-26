@@ -204,11 +204,10 @@ def initialize_and_login_driver(
     username,
     password,
     nickname,
+    config_path=None,
 ):
     """Initialize WebDriver and login to Mediux."""
-    webdriver_manager = WebDriverManager(
-        None
-    )  # config_path will be set later if needed
+    webdriver_manager = WebDriverManager(config_path)
     driver = webdriver_manager.init_driver(
         headless=headless,
         profile_path=profile_path,
