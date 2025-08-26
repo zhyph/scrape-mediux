@@ -6,7 +6,6 @@ including Plex API and folder scanning.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 

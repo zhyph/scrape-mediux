@@ -4,31 +4,25 @@ Unit tests for scraper.py module.
 This module tests WebDriver management, login functionality, and YAML scraping capabilities.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-import time
-from unittest.mock import Mock, patch, MagicMock, call
 from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.remote.webelement import WebElement
 
 from modules.scraper import (
-    WebDriverManager,
     MediuxLoginManager,
     MediuxScraper,
+    WebDriverManager,
     initialize_and_login_driver,
 )
 
 # Import re for regex operations in tests
-import re
 
 
 def test_scraper_module_imports():
     """Test that all required imports are available."""
     # This test ensures the module can be imported without ChromeDriverManager issues
-    from modules.scraper import WebDriverManager, MediuxLoginManager, MediuxScraper
+    from modules.scraper import MediuxScraper, WebDriverManager
 
     # Verify classes can be instantiated
     manager = WebDriverManager()
@@ -561,7 +555,6 @@ class TestMediuxScraper:
             ):
                 with patch.object(self.scraper, "wait_for_update_completion"):
                     with patch.object(self.scraper, "wait_for_refresh_completion"):
-
                         # Execute
                         result = self.scraper.scrape_mediux(mock_driver, "123", "movie")
 
@@ -595,7 +588,6 @@ class TestMediuxScraper:
                 ):
                     with patch.object(self.scraper, "wait_for_update_completion"):
                         with patch.object(self.scraper, "wait_for_refresh_completion"):
-
                             # Execute
                             result = self.scraper.scrape_mediux(
                                 mock_driver, "123", "movie"

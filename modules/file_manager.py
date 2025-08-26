@@ -5,21 +5,16 @@ This module handles cache operations, file reading/writing, data persistence,
 and bulk data management for the Mediux scraper.
 """
 
-import os
 import logging
+import os
 import pickle
 import shutil
-import time
-from typing import Dict, List, Any, Optional, Set, Tuple, Union
-from collections import defaultdict
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
+from modules.config import yaml_parser
+from modules.intelligent_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
-
-# Import global YAML parser instance from config module
-from modules.config import yaml_parser
-
-# Import intelligent cache
-from modules.intelligent_cache import get_cache_manager
 
 
 class CacheManager:
@@ -174,31 +169,6 @@ class FileWriter:
             else [root_folder_global]
         )
 
-        # Check if any data files have been modified since last scan
-        latest_mtime = 0
-        for root in root_folders_list:
-            if os.path.exists(root):
-                data_dir = "./out/kometa"
-                if os.path.exists(data_dir):
-                    for file_name in os.listdir(data_dir):
-                        if file_name.endswith("_data.yml"):
-                            file_path = os.path.join(data_dir, file_name)
-                            try:
-                                mtime = os.path.getmtime(file_path)
-                                latest_mtime = max(latest_mtime, mtime)
-                            except OSError:
-                                continue
-
-        cache_key = (
-            f"existing_urls:{':'.join(sorted(root_folders_list))}:{latest_mtime}"
-        )
-
-        # Check cache first
-        cached_result = self.cache_manager.cache.get("file_ops", cache_key)
-        if cached_result:
-            self.logger.debug("Using cached existing URLs")
-            return cached_result
-
         existing_urls = set()
 
         folder_cache = {root: os.listdir(root) for root in root_folders_list}
@@ -215,11 +185,6 @@ class FileWriter:
                         )
                     )
 
-        # Cache the result
-        self.cache_manager.cache.set("file_ops", cache_key, existing_urls)
-        self.logger.debug(
-            f"Cached existing URLs for {len(root_folders_list)} root folders"
-        )
         return existing_urls
 
     def _update_data_file(

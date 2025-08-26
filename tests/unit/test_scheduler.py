@@ -3,10 +3,12 @@ Unit tests for scheduler.py module.
 """
 
 import os
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from freezegun import freeze_time
 from datetime import datetime
+from unittest.mock import Mock, patch
+
+import pytest
+from freezegun import freeze_time
+
 from modules.scheduler import schedule_run, write_data_to_files
 
 
@@ -29,7 +31,6 @@ class TestScheduleRun:
                     with patch(
                         "modules.scheduler.write_data_to_files"
                     ) as mock_write_files:
-
                         # Setup croniter mock
                         mock_croniter = Mock()
                         mock_croniter_class.return_value = mock_croniter
@@ -65,7 +66,6 @@ class TestScheduleRun:
                     with patch(
                         "modules.scheduler.write_data_to_files"
                     ) as mock_write_files:
-
                         # Setup croniter mock with side_effect for multiple calls
                         mock_croniter = Mock()
                         mock_croniter_class.return_value = mock_croniter
@@ -109,7 +109,6 @@ class TestScheduleRun:
                     with patch(
                         "modules.scheduler.write_data_to_files"
                     ) as mock_write_files:
-
                         # Setup croniter mock with side_effect for multiple calls
                         mock_croniter = Mock()
                         mock_croniter_class.return_value = mock_croniter
@@ -151,7 +150,6 @@ class TestScheduleRun:
                     with patch(
                         "modules.scheduler.write_data_to_files"
                     ) as mock_write_files:
-
                         # Setup croniter mock
                         mock_croniter = Mock()
                         mock_croniter_class.return_value = mock_croniter
@@ -224,11 +222,8 @@ class TestWriteDataToFiles:
                                     with patch(
                                         "modules.intelligent_cache.get_cache_manager"
                                     ) as mock_get_cache:
-
                                         # Setup mocks
-                                        mock_cache_config.should_save_cache.return_value = (
-                                            True
-                                        )
+                                        mock_cache_config.should_save_cache.return_value = True
                                         mock_cache_config.get_cache_file_path.side_effect = [
                                             "/cache/intelligent_cache.pkl",
                                             "/cache/tmdb_cache.pkl",
@@ -285,11 +280,8 @@ class TestWriteDataToFiles:
                                     with patch(
                                         "modules.intelligent_cache.get_cache_manager"
                                     ) as mock_get_cache:
-
                                         # Setup mocks - cache disabled
-                                        mock_cache_config.should_save_cache.return_value = (
-                                            False
-                                        )
+                                        mock_cache_config.should_save_cache.return_value = False
 
                                         mock_file_writer = Mock()
                                         mock_file_writer_class.return_value = (
@@ -324,7 +316,6 @@ class TestWriteDataToFiles:
                                 with patch(
                                     "modules.file_manager.FileWriter"
                                 ) as mock_file_writer_class:
-
                                     mock_cache_config.should_save_cache.return_value = (
                                         False
                                     )

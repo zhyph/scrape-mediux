@@ -4,10 +4,11 @@ Scheduler module for Mediux Scraper.
 This module handles script execution scheduling using cron expressions.
 """
 
-import os
 import logging
+import os
 from datetime import datetime
 from time import sleep
+
 from croniter import croniter
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def schedule_run(*, cron_expression, args_dict):
             try:
                 # Import the run function here to avoid circular imports
                 from modules.orchestrator import run
+
                 run(**args_dict)
                 write_data_to_files()
             except Exception as e:
@@ -44,16 +46,21 @@ def schedule_run(*, cron_expression, args_dict):
 def write_data_to_files():
     """Write collected data to files."""
     # Import globals and functions here to avoid circular imports
-    from modules.orchestrator import (
-        new_data, cache, root_folder_global, output_dir_global, cache_config
-    )
     from modules.file_manager import FileWriter
+    from modules.orchestrator import (
+        cache,
+        cache_config,
+        new_data,
+        output_dir_global,
+        root_folder_global,
+    )
 
     if not root_folder_global:
         logger.error("Root folder is not set. Cannot write data.")
         return
 
     from modules.config import validate_path
+
     validate_path(path=root_folder_global, description="Root folder")
     logger.info("Writing data to files...")
 

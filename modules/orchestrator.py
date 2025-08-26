@@ -5,20 +5,19 @@ This module coordinates the main execution flow of the Mediux scraper,
 including setup, media processing, and cleanup.
 """
 
+import logging
 import os
 import time
-import logging
-from typing import Any, List, Optional, Dict
+
+from selenium.common.exceptions import TimeoutException
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from urllib3.exceptions import ReadTimeoutError
-from selenium.common.exceptions import TimeoutException
+
+from modules.cache_config import cache_config
+from modules.media_processing import cache, folder_bulk_data, new_data
 
 logger = logging.getLogger(__name__)
-
-# Import shared resources
-from modules.media_processing import new_data, cache, folder_bulk_data
-from modules.cache_config import cache_config
 
 
 def run(
@@ -60,8 +59,6 @@ def run(
 
     start_time = time.time()
     logger.info("🚀 MEDIUX SCRAPER STARTED")
-
-    from modules.config import validate_path
 
     folder_count = (
         len(root_folder_global) if isinstance(root_folder_global, list) else 1
@@ -192,7 +189,7 @@ def run(
 
     driver = None
     try:
-        from modules.scraper import WebDriverManager, MediuxLoginManager
+        from modules.scraper import MediuxLoginManager, WebDriverManager
 
         webdriver_manager = WebDriverManager(
             None
@@ -274,7 +271,9 @@ def run(
 
         # Write data to files before shutting down
         logger.info("👤 Saving data to files...")
-        write_data_to_files(root_folder_path=root_folder_global, output_dir=output_dir_global)
+        write_data_to_files(
+            root_folder_path=root_folder_global, output_dir=output_dir_global
+        )
 
         logger.info("👤 Shutting down...")
         if driver:
@@ -321,8 +320,10 @@ def run(
                             hit_rate = (
                                 (stats.get("hits", 0) / total * 100) if total > 0 else 0
                             )
-                            logger.info(f"      • {namespace}: {hit_rate:.1f}% hit rate ({stats.get('hits', 0)} hits, {stats.get('misses', 0)} misses)")
-                    logger.info(f"   • Cache file: ./out/intelligent_cache.pkl")
+                            logger.info(
+                                f"      • {namespace}: {hit_rate:.1f}% hit rate ({stats.get('hits', 0)} hits, {stats.get('misses', 0)} misses)"
+                            )
+                    logger.info("   • Cache file: ./out/intelligent_cache.pkl")
             except Exception as e:
                 logger.debug(f"Could not retrieve cache stats: {e}")
 

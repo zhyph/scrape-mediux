@@ -2,10 +2,10 @@
 Unit tests for media_processing.py module.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from collections import defaultdict
-from modules.media_processing import should_skip_scraping, process_single_media_item
+from unittest.mock import Mock, patch
+
+from modules.media_processing import process_single_media_item, should_skip_scraping
 
 
 class TestShouldSkipScraping:
@@ -156,14 +156,16 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_tmdb_id_resolution(self):
         """Test TMDB ID resolution for direct TMDB ID input."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client
@@ -214,14 +216,16 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_external_id_resolution(self):
         """Test external ID resolution (non-TMDB direct input)."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client
@@ -305,16 +309,17 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_sonarr_check_for_tv(self):
         """Test Sonarr integration for TV shows."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.external_services.SonarrClient"
-        ) as mock_sonarr_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch("modules.external_services.SonarrClient") as mock_sonarr_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client
@@ -369,14 +374,16 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_scraping_failure(self, caplog):
         """Test handling of scraping failure (no YAML returned)."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client
@@ -420,18 +427,18 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_yaml_filtering(self):
         """Test YAML filtering functionality."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.data_processor.YAMLDataFilter"
-        ) as mock_filter_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class, patch(
-            "modules.media_processing.yaml_parser"
-        ) as mock_parser:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.data_processor.YAMLDataFilter") as mock_filter_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+            patch("modules.media_processing.yaml_parser") as mock_parser,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client
@@ -488,14 +495,16 @@ class TestProcessSingleMediaItem:
 
     def test_process_single_media_item_shared_resources(self):
         """Test using shared resources instead of globals."""
-        with patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class, patch(
-            "modules.data_processor.YAMLStructureProcessor"
-        ) as mock_structure_class, patch(
-            "modules.data_processor.DataComparisonEngine"
-        ) as mock_comparison_class, patch(
-            "modules.scraper.MediuxScraper"
-        ) as mock_scraper_class:
-
+        with (
+            patch("modules.tmdb_client.TMDBClient") as mock_tmdb_class,
+            patch(
+                "modules.data_processor.YAMLStructureProcessor"
+            ) as mock_structure_class,
+            patch(
+                "modules.data_processor.DataComparisonEngine"
+            ) as mock_comparison_class,
+            patch("modules.scraper.MediuxScraper") as mock_scraper_class,
+        ):
             # Setup mocks
             mock_tmdb_client = Mock()
             mock_tmdb_class.return_value = mock_tmdb_client

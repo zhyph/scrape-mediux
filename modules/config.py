@@ -5,11 +5,12 @@ This module handles all configuration loading, validation, and argument parsing
 for the Mediux scraper application.
 """
 
-import os
 import argparse
 import json
 import logging
-from typing import Dict, List, Any, Optional, Union
+import os
+from typing import Any, Dict, List, Union
+
 from ruamel import yaml
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,8 @@ class ConfigManager:
     def setup_logging(self, log_level: str = "INFO") -> None:
         """Setup enhanced logging configuration with better formatting and colors."""
         import sys
-        from colorama import init, Fore, Back, Style
+
+        from colorama import Back, Fore, Style, init
 
         # Initialize colorama for cross-platform color support
         init(autoreset=True)

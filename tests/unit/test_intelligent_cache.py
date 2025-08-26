@@ -3,18 +3,16 @@ Tests for intelligent_cache.py module.
 """
 
 import time
-import pytest
-import tempfile
-import os
-from unittest.mock import patch, Mock, MagicMock
-from freezegun import freeze_time
 from collections import OrderedDict
+from unittest.mock import MagicMock, Mock, patch
+
+from freezegun import freeze_time
 
 from modules.intelligent_cache import (
     CacheEntry,
+    CacheManager,
     IntelligentCache,
     NamespaceCache,
-    CacheManager,
     get_cache_manager,
 )
 

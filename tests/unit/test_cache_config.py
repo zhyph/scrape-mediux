@@ -2,9 +2,8 @@
 Tests for cache_config.py module.
 """
 
-import pytest
 import os
-from unittest.mock import patch, MagicMock
+
 from modules.cache_config import CacheConfig, cache_config
 
 

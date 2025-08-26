@@ -5,13 +5,13 @@ This module provides a simple entry point that imports and orchestrates
 the various modules of the Mediux scraper application.
 """
 
-import uuid
-import os
-import atexit
 import logging
+import os
+import uuid
+
 from modules.config import ConfigManager
-from modules.scheduler import schedule_run
 from modules.orchestrator import run
+from modules.scheduler import schedule_run
 
 # Set up basic environment configuration
 os.environ["PLEXAPI_HEADER_IDENTIFIER"] = uuid.uuid3(
@@ -72,8 +72,10 @@ def main():
             "disable_season_fix": app_settings["disable_season_fix"],
             "remove_paths": app_settings["remove_paths"],
             "plex_url": app_settings.get("plex_url") or app_settings.get("zplex_url"),
-            "plex_token": app_settings.get("plex_token") or app_settings.get("zplex_token"),
-            "plex_libraries": app_settings.get("plex_libraries") or app_settings.get("zplex_libraries"),
+            "plex_token": app_settings.get("plex_token")
+            or app_settings.get("zplex_token"),
+            "plex_libraries": app_settings.get("plex_libraries")
+            or app_settings.get("zplex_libraries"),
             "disable_cache": app_settings.get("disable_cache", False),
             "clear_cache": app_settings.get("clear_cache", False),
             "cache_dir": app_settings.get("cache_dir", "./out"),

@@ -2,8 +2,10 @@
 Unit tests for media_discovery.py module.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
 from modules.media_discovery import get_media_ids
 
 
@@ -38,10 +40,12 @@ class TestGetMediaIds:
         """Test Plex failure falls back to folder scanning."""
         expected_ids = ["tt0111161", "tt0068646"]
 
-        with patch("modules.external_services.PlexClient") as mock_plex_class, patch(
-            "modules.external_services.MediaDiscoveryService"
-        ) as mock_discovery_class:
-
+        with (
+            patch("modules.external_services.PlexClient") as mock_plex_class,
+            patch(
+                "modules.external_services.MediaDiscoveryService"
+            ) as mock_discovery_class,
+        ):
             mock_plex_class.side_effect = Exception("Plex connection failed")
             mock_discovery_class.return_value = mock_discovery_service
             mock_discovery_service.get_media_ids_from_folder.return_value = expected_ids
@@ -91,10 +95,12 @@ class TestGetMediaIds:
         self, mock_discovery_service, caplog
     ):
         """Test Plex exception during library listing falls back to folder."""
-        with patch("modules.external_services.PlexClient") as mock_plex_class, patch(
-            "modules.external_services.MediaDiscoveryService"
-        ) as mock_discovery_class:
-
+        with (
+            patch("modules.external_services.PlexClient") as mock_plex_class,
+            patch(
+                "modules.external_services.MediaDiscoveryService"
+            ) as mock_discovery_class,
+        ):
             mock_plex_class.side_effect = Exception("Connection failed")
             mock_discovery_class.return_value = mock_discovery_service
             mock_discovery_service.get_media_ids_from_folder.return_value = [

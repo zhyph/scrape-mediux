@@ -5,20 +5,21 @@ This module handles WebDriver management, browser automation, login functionalit
 and screenshot capabilities for the Mediux scraper.
 """
 
+import logging
 import os
 import re
 import time
-import logging
-from typing import Optional, List, Tuple, Dict, Any
+from typing import List, Optional, Tuple
+
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 # Import intelligent cache
 from modules.intelligent_cache import get_cache_manager
@@ -577,7 +578,7 @@ class MediuxScraper:
             self.cache_manager.cache.set("yaml_data", cache_key, yaml_data)
             return yaml_data
 
-        except Exception as e:
+        except Exception:
             if not driver.find_elements(By.XPATH, yaml_xpath):
                 self.logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
                 self.cache_manager.cache.set("yaml_data", cache_key, "")

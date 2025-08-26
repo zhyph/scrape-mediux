@@ -5,17 +5,17 @@ This module handles all interactions with The Movie Database (TMDB) API,
 including ID resolution, title similarity calculations, and external ID lookups.
 """
 
-import re
 import logging
-import requests
-from typing import Optional, Tuple, Dict, List, Any
+import re
 from collections.abc import Mapping, Sequence
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-logger = logging.getLogger(__name__)
-
-# Import intelligent cache
 from modules.intelligent_cache import get_cache_manager
+
+logger = logging.getLogger(__name__)
 
 
 class TitleSimilarityCalculator:

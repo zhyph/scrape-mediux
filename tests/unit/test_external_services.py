@@ -2,16 +2,16 @@
 Tests for external_services.py module.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-import requests
-from unittest.mock import Mock, patch, MagicMock
-from requests.exceptions import RequestException, Timeout, ConnectionError
+from requests.exceptions import RequestException, Timeout
 
 from modules.external_services import (
     DiscordNotifier,
-    SonarrClient,
-    PlexClient,
     MediaDiscoveryService,
+    PlexClient,
+    SonarrClient,
 )
 
 

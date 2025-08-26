@@ -5,17 +5,16 @@ This module handles YAML data filtering, structure preprocessing, data compariso
 and change detection for the Mediux scraper.
 """
 
-import re
-import logging
 import hashlib
-from typing import Dict, List, Any, Optional, Set, Tuple
-from collections.abc import Mapping, Sequence
+import logging
+import re
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 from ruamel.yaml import YAML
 
-logger = logging.getLogger(__name__)
-
-# Import intelligent cache
 from modules.intelligent_cache import get_cache_manager
+
+logger = logging.getLogger(__name__)
 
 
 class YAMLDataFilter:
@@ -341,10 +340,6 @@ class DataComparisonEngine:
                 f"No new YAML content to compare for '{media_name}' (ID: {id_for_logging})."
             )
             return False
-
-        import logging
-        from typing import Dict, List, Any, Optional, Set, Tuple
-        from collections.abc import Mapping, Sequence
 
         from modules.tmdb_client import to_standard_dict
 

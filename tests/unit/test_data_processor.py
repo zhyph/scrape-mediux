@@ -2,15 +2,13 @@
 Tests for data_processor.py module.
 """
 
-import pytest
-from io import StringIO
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from modules.data_processor import (
-    YAMLDataFilter,
-    YAMLStructureProcessor,
     DataComparisonEngine,
     SetURLExtractor,
+    YAMLDataFilter,
+    YAMLStructureProcessor,
 )
 
 

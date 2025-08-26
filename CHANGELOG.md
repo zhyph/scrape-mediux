@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [25.08.25.23]
+
+### Removed
+
+- **Removed file_ops cache** from `modules/file_manager.py` and `modules/intelligent_cache.py`:
+  - Eliminated caching layer in `_collect_existing_urls()` method for direct resource access
+  - Removed "file_ops" cache configuration (2-hour TTL) from intelligent cache system
+  - All file operations now access resources directly without caching
+
 ## [25.08.25.21]
 
 ### Fixed

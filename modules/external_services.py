@@ -5,18 +5,18 @@ This module handles integrations with external services like Sonarr,
 Discord notifications, and Plex API for media discovery.
 """
 
+import logging
 import os
 import re
-import logging
-import requests
-from typing import List, Dict, Any, Optional, Tuple, Set, Union
 from collections import defaultdict
+from typing import Dict, List, Optional, Tuple, Union
+
+import requests
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-logger = logging.getLogger(__name__)
-
-# Import intelligent cache
 from modules.intelligent_cache import get_cache_manager
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordNotifier:
@@ -200,8 +200,9 @@ class PlexClient:
                     guids = {
                         guid.id.split("://")[0]
                         .replace("themoviedb", "tmdb")
-                        .replace("thetvdb", "tvdb"): guid.id.split("://")[1]
-                        .split("?")[0]
+                        .replace("thetvdb", "tvdb"): guid.id.split("://")[1].split("?")[
+                            0
+                        ]
                         for guid in item.guids
                     }
 
@@ -292,6 +293,7 @@ class MediaDiscoveryService:
         # Cache miss - perform the scan
 
         import os
+
         from modules.config import validate_path
 
         validate_path(path=root_folder, description="Root folder")
@@ -340,8 +342,8 @@ class MediaDiscoveryService:
         Returns:
             Cache key string that changes when folder contents change
         """
-        import os
         import hashlib
+        import os
 
         # Base key components
         root_key = (

@@ -5,8 +5,8 @@ This module handles cache configuration settings and management
 for the Mediux scraper application.
 """
 
-import os
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 

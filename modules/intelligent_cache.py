@@ -5,14 +5,14 @@ This module provides smart caching capabilities with time-based expiration,
 memory limits, and different strategies for various types of data.
 """
 
-import time
-import threading
-import logging
-import pickle
-import os
-from typing import Dict, Any, Optional, Tuple, Set
-from collections import OrderedDict
 import hashlib
+import logging
+import os
+import pickle
+import threading
+import time
+from collections import OrderedDict
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +152,9 @@ class IntelligentCache:
     def _check_memory_usage(self):
         """Check memory usage and trigger cleanup if necessary."""
         try:
-            import psutil
             import os
+
+            import psutil
 
             # Get current process memory usage
             process = psutil.Process(os.getpid())
@@ -225,13 +226,12 @@ class NamespaceCache:
             if name not in self.namespaces:
                 # Configure different TTLs for different namespaces - optimized for daily runs
                 ttl_config = {
-                    "tmdb_api": None,        # permanent - TMDB IDs are inherently stable
-                    "sonarr_api": 43200,     # 12 hours - series status changes are moderate
-                    "yaml_data": 21600,      # 6 hours - processed YAML needs periodic refresh
-                    "media_ids": None,       # permanent - folder structure IDs are stable
-                    "file_ops": 900,         # 15 minutes - file operations can change more frequently
+                    "tmdb_api": None,  # permanent - TMDB IDs are inherently stable
+                    "sonarr_api": 43200,  # 12 hours - series status changes are moderate
+                    "yaml_data": 21600,  # 6 hours - processed YAML needs periodic refresh
+                    "media_ids": None,  # permanent - folder structure IDs are stable
                 }
-                ttl = ttl_config.get(name, 3600) # Default 1 hour TTL
+                ttl = ttl_config.get(name, 3600)  # Default 1 hour TTL
                 self.namespaces[name] = IntelligentCache(max_size=5000, default_ttl=ttl)
             return self.namespaces[name]
 
@@ -359,7 +359,7 @@ class NamespaceCache:
 
                         cache.cache[key] = entry
 
-                    # Reset statistics for new run but preserve cache data
+                    # Reset statistics for fresh per-run tracking (don't preserve old stats)
                     cache.stats = {
                         "hits": 0,
                         "misses": 0,
@@ -368,11 +368,40 @@ class NamespaceCache:
                     }
 
             self.logger.info(f"Intelligent cache loaded from {filepath}")
+
+            # Perform cache warming for critical namespaces
+            self._warm_critical_caches()
+
         except Exception as e:
             self.logger.error(f"Failed to load intelligent cache: {e}")
             import traceback
 
             self.logger.debug(f"Cache load error details: {traceback.format_exc()}")
+
+    def _warm_critical_caches(self):
+        """Warm up critical cache namespaces by cleaning expired entries."""
+        critical_namespaces = ["media_ids", "tmdb_api"]
+
+        with self.lock:
+            for namespace in critical_namespaces:
+                if namespace in self.namespaces:
+                    cache = self.namespaces[namespace]
+                    expired_count = 0
+
+                    # Clean expired entries
+                    expired_keys = []
+                    for key, entry in cache.cache.items():
+                        if entry.is_expired():
+                            expired_keys.append(key)
+
+                    for key in expired_keys:
+                        del cache.cache[key]
+                        expired_count += 1
+
+                    if expired_count > 0:
+                        self.logger.debug(
+                            f"Cache warming: cleaned {expired_count} expired entries in {namespace}"
+                        )
 
 
 class CacheManager:

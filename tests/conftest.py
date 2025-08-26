@@ -2,13 +2,12 @@
 Shared test fixtures and utilities for Mediux Scraper tests.
 """
 
-import os
-import tempfile
-import pytest
-import json
 import itertools
-from unittest.mock import Mock, MagicMock
-from pathlib import Path
+import json
+import tempfile
+from unittest.mock import Mock
+
+import pytest
 
 
 @pytest.fixture

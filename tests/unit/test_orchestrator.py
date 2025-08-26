@@ -2,11 +2,13 @@
 Unit tests for orchestrator.py module.
 """
 
-import pytest
-from unittest.mock import Mock, patch, call
 from collections import defaultdict
+from unittest.mock import Mock, call, patch
+
+import pytest
 from selenium.common.exceptions import TimeoutException
-from modules.orchestrator import write_data_to_files, run
+
+from modules.orchestrator import run, write_data_to_files
 
 
 class TestWriteDataToFiles:
@@ -34,7 +36,6 @@ class TestWriteDataToFiles:
                             with patch(
                                 "modules.intelligent_cache.get_cache_manager"
                             ) as mock_get_cache:
-
                                 # Setup mocks
                                 mock_cache_config.should_save_cache.return_value = True
                                 mock_cache_config.get_cache_file_path.side_effect = [
@@ -90,7 +91,6 @@ class TestWriteDataToFiles:
                             with patch(
                                 "modules.intelligent_cache.get_cache_manager"
                             ) as mock_get_cache:
-
                                 # Setup mocks - cache disabled
                                 mock_cache_config.should_save_cache.return_value = False
 
@@ -122,7 +122,6 @@ class TestWriteDataToFiles:
                         with patch(
                             "modules.file_manager.FileWriter"
                         ) as mock_file_writer_class:
-
                             mock_cache_config.should_save_cache.return_value = False
                             mock_file_writer = Mock()
                             mock_file_writer_class.return_value = mock_file_writer
@@ -156,7 +155,6 @@ def test_orchestrator_write_data_to_files_integration():
                         with patch(
                             "modules.intelligent_cache.get_cache_manager"
                         ) as mock_get_cache:
-
                             # Setup mocks
                             mock_cache_config.should_save_cache.return_value = True
                             mock_cache_config.get_cache_file_path.side_effect = [
@@ -236,46 +234,33 @@ def test_run_function_setup_phase(mock_time):
                                                             with patch(
                                                                 "modules.orchestrator.os.remove"
                                                             ):  # Mock file removal
-
                                                                 # Setup mocks
                                                                 mock_cache_config = (
                                                                     Mock()
                                                                 )
-                                                                mock_cache_config.clear_cache = (
-                                                                    False
-                                                                )
-                                                                mock_cache_config.should_save_cache.return_value = (
-                                                                    True
-                                                                )
+                                                                mock_cache_config.clear_cache = False
+                                                                mock_cache_config.should_save_cache.return_value = True
                                                                 mock_cache_config.get_cache_file_path.side_effect = [
                                                                     "/cache/tmdb_cache.pkl",
                                                                     "/cache/intelligent_cache.pkl",
                                                                 ]
-                                                                mock_cache_config_class.return_value = (
-                                                                    mock_cache_config
-                                                                )
+                                                                mock_cache_config_class.return_value = mock_cache_config
 
                                                                 mock_cache_manager = (
                                                                     Mock()
                                                                 )
-                                                                mock_cache_manager_class.return_value = (
-                                                                    mock_cache_manager
-                                                                )
+                                                                mock_cache_manager_class.return_value = mock_cache_manager
                                                                 mock_cache_manager.load_cache.return_value = {
                                                                     "test": "cache"
                                                                 }
 
-                                                                mock_intelligent_cache = (
-                                                                    Mock()
-                                                                )
+                                                                mock_intelligent_cache = Mock()
                                                                 mock_get_cache.return_value = mock_intelligent_cache
 
                                                                 mock_bulk_manager = (
                                                                     Mock()
                                                                 )
-                                                                mock_bulk_manager_class.return_value = (
-                                                                    mock_bulk_manager
-                                                                )
+                                                                mock_bulk_manager_class.return_value = mock_bulk_manager
 
                                                                 # Execute function
                                                                 run(
@@ -329,7 +314,6 @@ def test_write_data_to_files_integration():
                         with patch(
                             "modules.intelligent_cache.get_cache_manager"
                         ) as mock_get_cache:
-
                             # Setup mocks
                             mock_cache_config.should_save_cache.return_value = True
                             mock_cache_config.get_cache_file_path.side_effect = [
@@ -423,39 +407,26 @@ class TestRunFunction:
                                                                     with patch(
                                                                         "modules.orchestrator.os.remove"
                                                                     ):  # Mock file removal
-
                                                                         # Setup mocks
-                                                                        mock_cache_config = (
-                                                                            Mock()
-                                                                        )
-                                                                        mock_cache_config.clear_cache = (
-                                                                            True
-                                                                        )
-                                                                        mock_cache_config.should_save_cache.return_value = (
-                                                                            True
-                                                                        )
+                                                                        mock_cache_config = Mock()
+                                                                        mock_cache_config.clear_cache = True
+                                                                        mock_cache_config.should_save_cache.return_value = True
                                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                                             "/cache/tmdb_cache.pkl",
                                                                             "/cache/intelligent_cache.pkl",
                                                                         ]
                                                                         mock_cache_config_class.return_value = mock_cache_config
 
-                                                                        mock_cache_manager = (
-                                                                            Mock()
-                                                                        )
+                                                                        mock_cache_manager = Mock()
                                                                         mock_cache_manager_class.return_value = mock_cache_manager
                                                                         mock_cache_manager.load_cache.return_value = {
                                                                             "test": "cache"
                                                                         }
 
-                                                                        mock_intelligent_cache = (
-                                                                            Mock()
-                                                                        )
+                                                                        mock_intelligent_cache = Mock()
                                                                         mock_get_cache.return_value = mock_intelligent_cache
 
-                                                                        mock_bulk_manager = (
-                                                                            Mock()
-                                                                        )
+                                                                        mock_bulk_manager = Mock()
                                                                         mock_bulk_manager_class.return_value = mock_bulk_manager
 
                                                                         # Execute function
@@ -524,25 +495,16 @@ class TestRunFunction:
                                                         with patch(
                                                             "modules.orchestrator.os.remove"
                                                         ):  # Mock file removal
-
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.disable_cache = (
-                                                                True
-                                                            )
-                                                            mock_cache_config.clear_cache = (
-                                                                False
-                                                            )
-                                                            mock_cache_config.should_save_cache.return_value = (
-                                                                False
-                                                            )
+                                                            mock_cache_config.disable_cache = True
+                                                            mock_cache_config.clear_cache = False
+                                                            mock_cache_config.should_save_cache.return_value = False
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = (
-                                                                mock_cache_config
-                                                            )
+                                                            mock_cache_config_class.return_value = mock_cache_config
 
                                                             # Execute function with cache disabled
                                                             run(
@@ -603,22 +565,15 @@ class TestRunFunction:
                                                         with patch(
                                                             "modules.external_services.DiscordNotifier"
                                                         ):
-
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.clear_cache = (
-                                                                True
-                                                            )
+                                                            mock_cache_config.clear_cache = True
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = (
-                                                                mock_cache_config
-                                                            )
-                                                            mock_cache_config.should_save_cache.return_value = (
-                                                                True
-                                                            )
+                                                            mock_cache_config_class.return_value = mock_cache_config
+                                                            mock_cache_config.should_save_cache.return_value = True
 
                                                             # Execute function with cache clearing
                                                             run(
@@ -682,27 +637,18 @@ class TestRunFunction:
                                                         with patch(
                                                             "modules.external_services.DiscordNotifier"
                                                         ):
-
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.clear_cache = (
-                                                                False
-                                                            )
-                                                            mock_cache_config.should_save_cache.return_value = (
-                                                                True
-                                                            )
+                                                            mock_cache_config.clear_cache = False
+                                                            mock_cache_config.should_save_cache.return_value = True
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = (
-                                                                mock_cache_config
-                                                            )
+                                                            mock_cache_config_class.return_value = mock_cache_config
 
                                                             mock_bulk_manager = Mock()
-                                                            mock_bulk_manager_class.return_value = (
-                                                                mock_bulk_manager
-                                                            )
+                                                            mock_bulk_manager_class.return_value = mock_bulk_manager
 
                                                             # Execute function with Plex libraries
                                                             run(
@@ -767,13 +713,10 @@ class TestRunFunction:
                                             with patch(
                                                 "modules.orchestrator.os.remove"
                                             ):  # Mock file removal
-
                                                 # Setup mocks
                                                 mock_cache_config = Mock()
                                                 mock_cache_config.clear_cache = True
-                                                mock_cache_config.should_save_cache.return_value = (
-                                                    True
-                                                )
+                                                mock_cache_config.should_save_cache.return_value = True
                                                 mock_cache_config.get_cache_file_path.side_effect = [
                                                     "/cache/tmdb_cache.pkl",
                                                     "/cache/intelligent_cache.pkl",
@@ -861,30 +804,19 @@ class TestRunFunction:
                                                     with patch(
                                                         "modules.orchestrator.os.remove"
                                                     ):  # Mock file removal
-
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = (
-                                                            True
-                                                        )
-                                                        mock_cache_config.should_save_cache.return_value = (
-                                                            True
-                                                        )
+                                                        mock_cache_config.clear_cache = True
+                                                        mock_cache_config.should_save_cache.return_value = True
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = (
-                                                            mock_cache_config
-                                                        )
+                                                        mock_cache_config_class.return_value = mock_cache_config
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = (
-                                                            mock_webdriver_manager
-                                                        )
-                                                        mock_webdriver_manager.init_driver.return_value = (
-                                                            Mock()
-                                                        )
+                                                        mock_webdriver_class.return_value = mock_webdriver_manager
+                                                        mock_webdriver_manager.init_driver.return_value = Mock()
 
                                                         # Execute function
                                                         run(
@@ -1009,35 +941,22 @@ class TestRunFunction:
                                                     with patch(
                                                         "modules.orchestrator.os.remove"
                                                     ):  # Mock file removal
-
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = (
-                                                            True
-                                                        )
-                                                        mock_cache_config.should_save_cache.return_value = (
-                                                            True
-                                                        )
+                                                        mock_cache_config.clear_cache = True
+                                                        mock_cache_config.should_save_cache.return_value = True
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = (
-                                                            mock_cache_config
-                                                        )
+                                                        mock_cache_config_class.return_value = mock_cache_config
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = (
-                                                            mock_webdriver_manager
-                                                        )
-                                                        mock_webdriver_manager.init_driver.return_value = (
-                                                            Mock()
-                                                        )
+                                                        mock_webdriver_class.return_value = mock_webdriver_manager
+                                                        mock_webdriver_manager.init_driver.return_value = Mock()
 
                                                         mock_discord = Mock()
-                                                        mock_discord_class.return_value = (
-                                                            mock_discord
-                                                        )
+                                                        mock_discord_class.return_value = mock_discord
 
                                                         # Execute function with Discord notifications
                                                         run(
@@ -1115,35 +1034,22 @@ class TestRunFunction:
                                                     with patch(
                                                         "modules.orchestrator.os.remove"
                                                     ):  # Mock file removal
-
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = (
-                                                            True
-                                                        )
-                                                        mock_cache_config.should_save_cache.return_value = (
-                                                            True
-                                                        )
+                                                        mock_cache_config.clear_cache = True
+                                                        mock_cache_config.should_save_cache.return_value = True
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = (
-                                                            mock_cache_config
-                                                        )
+                                                        mock_cache_config_class.return_value = mock_cache_config
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = (
-                                                            mock_webdriver_manager
-                                                        )
-                                                        mock_webdriver_manager.init_driver.return_value = (
-                                                            Mock()
-                                                        )
+                                                        mock_webdriver_class.return_value = mock_webdriver_manager
+                                                        mock_webdriver_manager.init_driver.return_value = Mock()
 
                                                         mock_login_manager = Mock()
-                                                        mock_login_class.return_value = (
-                                                            mock_login_manager
-                                                        )
+                                                        mock_login_class.return_value = mock_login_manager
 
                                                         # Execute function
                                                         run(

@@ -3,13 +3,11 @@ Tests for file_manager.py module.
 """
 
 import os
-import tempfile
 import pickle
 import shutil
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
-import pytest
-from modules.file_manager import CacheManager, BulkDataManager, FileWriter
+from modules.file_manager import BulkDataManager, CacheManager, FileWriter
 
 
 class TestCacheManager:
@@ -375,7 +373,6 @@ title: "New Movie"
         file_writer = FileWriter()
 
         # Ensure the source directory doesn't exist
-        import shutil
 
         source_dir = os.path.join(os.getcwd(), "out", "kometa")
         if os.path.exists(source_dir):
@@ -386,7 +383,7 @@ title: "New Movie"
 
             # Should log a warning that source directory doesn't exist
             mock_logger.warning.assert_called_with(
-                f"Source directory ./out/kometa does not exist. Nothing to copy."
+                "Source directory ./out/kometa does not exist. Nothing to copy."
             )
 
     def test_copy_to_output_dir_success(self, temp_dir):

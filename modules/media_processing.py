@@ -6,9 +6,8 @@ including scraping logic, data comparison, and result management.
 """
 
 import logging
-from typing import Any, List, Optional
-from io import StringIO
 from collections import defaultdict
+from io import StringIO
 
 # Import global YAML parser instance
 from modules.config import yaml_parser
@@ -93,8 +92,8 @@ def process_single_media_item(
     logger.info(f"{media_separator}")
 
     # Initialize services
+    from modules.data_processor import DataComparisonEngine, YAMLStructureProcessor
     from modules.tmdb_client import TMDBClient
-    from modules.data_processor import YAMLStructureProcessor, DataComparisonEngine
 
     tmdb_client = TMDBClient(api_key)
     structure_processor = YAMLStructureProcessor()

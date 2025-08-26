@@ -3,16 +3,15 @@ Tests for config.py module.
 """
 
 import json
-import pytest
-import tempfile
 import os
-from unittest.mock import patch, Mock, MagicMock
-from argparse import Namespace
+from unittest.mock import Mock, patch
+
+import pytest
 
 from modules.config import (
     ConfigManager,
-    validate_path,
     _validate_single_path,
+    validate_path,
     yaml_parser,
 )
 

@@ -2,11 +2,10 @@
 Tests for tmdb_client.py module.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-import requests
-from unittest.mock import Mock, patch, MagicMock
 from requests.exceptions import RequestException
-import json
 
 from modules.tmdb_client import TitleSimilarityCalculator, TMDBClient, to_standard_dict
 
