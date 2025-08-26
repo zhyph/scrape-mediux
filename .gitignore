@@ -4,6 +4,7 @@ config.json
 profile
 *.log
 main.py.backup
+output/**/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

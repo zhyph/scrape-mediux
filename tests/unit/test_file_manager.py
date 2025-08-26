@@ -413,21 +413,24 @@ title: "New Movie"
             ), "Expected info log about files being copied"
 
     def test_write_data_to_files_no_root_folder(self):
-        """Test write_data_to_files with no root folder."""
+        """Test write_data_to_files with no root folder (should work now)."""
         file_writer = FileWriter()
 
         with patch.object(file_writer, "logger") as mock_logger:
-            file_writer.write_data_to_files(
-                new_data={},
-                root_folder_global=None,  # type: ignore
-                cache={},
-                cache_file=None,
-                output_dir_global=None,
-            )
+            with patch.object(
+                file_writer, "_collect_existing_urls_from_yaml_files"
+            ) as mock_collect:
+                mock_collect.return_value = set()
 
-            mock_logger.error.assert_called_with(
-                "Root folder is not set. Cannot write data."
-            )
+                file_writer.write_data_to_files(
+                    new_data={},
+                    cache={},
+                    cache_file=None,
+                    output_dir_global=None,
+                )
+
+                mock_logger.info.assert_any_call("Writing data to files...")
+                mock_collect.assert_called_once()
 
     def test_write_data_to_files_success(self, temp_dir):
         """Test write_data_to_files successful operation."""
@@ -442,16 +445,20 @@ title: "New Movie"
 
         with patch.object(file_writer, "logger") as mock_logger:
             with patch("modules.file_manager.CacheManager") as mock_cache_manager:
-                file_writer.write_data_to_files(
-                    new_data=new_data,
-                    root_folder_global=root_folder,
-                    cache={"test": ("data", "movie")},
-                    cache_file="/test/cache.pkl",
-                    output_dir_global=None,
-                )
+                with patch.object(
+                    file_writer, "_collect_existing_urls_from_yaml_files"
+                ) as mock_collect:
+                    mock_collect.return_value = set()
 
-                mock_logger.info.assert_called()
-                mock_cache_manager.assert_called_once()
+                    file_writer.write_data_to_files(
+                        new_data=new_data,
+                        cache={"test": ("data", "movie")},
+                        cache_file="/test/cache.pkl",
+                        output_dir_global=None,
+                    )
+
+                    mock_logger.info.assert_called()
+                    mock_cache_manager.assert_called_once()
 
     def test_write_data_to_files_no_cache_file(self, temp_dir):
         """Test write_data_to_files with no cache file."""
@@ -465,13 +472,254 @@ title: "New Movie"
         new_data = {"test_media": {"tt0111161": "title: 'Test Movie'"}}
 
         with patch.object(file_writer, "logger") as mock_logger:
-            file_writer.write_data_to_files(
-                new_data=new_data,
-                root_folder_global=root_folder,
-                cache={},
-                cache_file=None,
-                output_dir_global=None,
-            )
+            with patch.object(
+                file_writer, "_collect_existing_urls_from_yaml_files"
+            ) as mock_collect:
+                mock_collect.return_value = set()
 
-            # Should log that cache saving is disabled
-            mock_logger.info.assert_called()
+                file_writer.write_data_to_files(
+                    new_data=new_data,
+                    cache={},
+                    cache_file=None,
+                    output_dir_global=None,
+                )
+
+                # Should log that cache saving is disabled
+                mock_logger.info.assert_called()
+
+
+class TestFileWriterRegression:
+    """Regression tests for recent changes to FileWriter class."""
+
+    def test_collect_existing_urls_from_yaml_files_empty_directory(self, temp_dir):
+        """Test _collect_existing_urls_from_yaml_files with empty kometa directory."""
+        file_writer = FileWriter()
+
+        # Create empty kometa directory
+        kometa_dir = os.path.join(temp_dir, "out", "kometa")
+        os.makedirs(kometa_dir, exist_ok=True)
+
+        with patch("modules.file_manager.os.path.exists", return_value=True):
+            with patch("modules.file_manager.os.listdir", return_value=[]):
+                with patch.object(file_writer, "logger") as mock_logger:
+                    result = file_writer._collect_existing_urls_from_yaml_files()
+
+                    assert result == set()
+                    # Should log that 0 URLs were collected since directory exists but is empty
+                    mock_logger.debug.assert_called_with(
+                        "Total existing URLs collected: 0"
+                    )
+
+    def test_collect_existing_urls_from_yaml_files_no_yaml_files(self, temp_dir):
+        """Test _collect_existing_urls_from_yaml_files with directory containing no YAML files."""
+        file_writer = FileWriter()
+
+        # Create kometa directory with non-YAML files
+        kometa_dir = os.path.join(temp_dir, "out", "kometa")
+        os.makedirs(kometa_dir, exist_ok=True)
+
+        # Create some non-YAML files
+        with open(os.path.join(kometa_dir, "cache.pkl"), "w") as f:
+            f.write("cache data")
+        with open(os.path.join(kometa_dir, "readme.txt"), "w") as f:
+            f.write("readme")
+
+        with patch("modules.file_manager.os.path.exists", return_value=True):
+            with patch(
+                "modules.file_manager.os.listdir",
+                return_value=["cache.pkl", "readme.txt"],
+            ):
+                with patch.object(file_writer, "logger") as mock_logger:
+                    result = file_writer._collect_existing_urls_from_yaml_files()
+
+                    assert result == set()
+                    mock_logger.debug.assert_called_with(
+                        "Total existing URLs collected: 0"
+                    )
+
+    def test_collect_existing_urls_from_yaml_files_with_valid_yaml(self, temp_dir):
+        """Test _collect_existing_urls_from_yaml_files with valid YAML files containing set URLs."""
+        file_writer = FileWriter()
+
+        with patch("modules.file_manager.os.path.exists", return_value=True):
+            with patch(
+                "modules.file_manager.os.listdir",
+                return_value=["arcane_data.yml", "abbott_data.yml"],
+            ):
+                with patch("modules.file_manager.BulkDataManager") as mock_bulk_manager:
+                    mock_instance = Mock()
+                    # Mock different return values for each file
+                    mock_instance.load_bulk_data.side_effect = [
+                        {"https://mediux.pro/sets/6347"},  # Arcane
+                        {"https://mediux.pro/sets/27137"},  # Abbott Elementary
+                    ]
+                    mock_bulk_manager.return_value = mock_instance
+
+                    with patch.object(file_writer, "logger") as mock_logger:
+                        result = file_writer._collect_existing_urls_from_yaml_files()
+
+                        expected_urls = {
+                            "https://mediux.pro/sets/6347",
+                            "https://mediux.pro/sets/27137",
+                        }
+                        assert result == expected_urls
+                        assert (
+                            mock_logger.debug.call_count >= 2
+                        )  # Debug logs for each file
+
+    def test_collect_existing_urls_from_yaml_files_invalid_yaml(self, temp_dir):
+        """Test _collect_existing_urls_from_yaml_files with invalid YAML files."""
+        file_writer = FileWriter()
+
+        # Create kometa directory with invalid YAML
+        kometa_dir = os.path.join(temp_dir, "out", "kometa")
+        os.makedirs(kometa_dir, exist_ok=True)
+
+        # Create invalid YAML file
+        invalid_yaml = """
+metadata:
+  invalid: yaml: content:
+    missing_value_here
+"""
+
+        with open(os.path.join(kometa_dir, "invalid_data.yml"), "w") as f:
+            f.write(invalid_yaml)
+
+        with patch("modules.file_manager.os.path.exists", return_value=True):
+            with patch(
+                "modules.file_manager.os.listdir", return_value=["invalid_data.yml"]
+            ):
+                with patch("modules.file_manager.BulkDataManager") as mock_bulk_manager:
+                    mock_instance = Mock()
+                    mock_instance.load_bulk_data.return_value = (
+                        set()
+                    )  # Return empty set for invalid YAML
+                    mock_bulk_manager.return_value = mock_instance
+
+                    result = file_writer._collect_existing_urls_from_yaml_files()
+
+                    assert result == set()
+                    mock_instance.load_bulk_data.assert_called_once()
+
+    def test_collect_existing_urls_from_yaml_files_mixed_files(self, temp_dir):
+        """Test _collect_existing_urls_from_yaml_files with mix of YAML and non-YAML files."""
+        file_writer = FileWriter()
+
+        with patch("modules.file_manager.os.path.exists", return_value=True):
+            with patch(
+                "modules.file_manager.os.listdir",
+                return_value=["arcane_data.yml", "cache.pkl", "readme.txt"],
+            ):
+                with patch("modules.file_manager.BulkDataManager") as mock_bulk_manager:
+                    mock_instance = Mock()
+                    mock_instance.load_bulk_data.return_value = {
+                        "https://mediux.pro/sets/6347"
+                    }
+                    mock_bulk_manager.return_value = mock_instance
+
+                    with patch.object(file_writer, "logger") as mock_logger:
+                        result = file_writer._collect_existing_urls_from_yaml_files()
+
+                        expected_urls = {"https://mediux.pro/sets/6347"}
+                        assert result == expected_urls
+                        assert (
+                            mock_logger.debug.call_count >= 1
+                        )  # Debug logs for each file
+
+    def test_write_data_to_files_url_preservation_across_runs(self, temp_dir):
+        """Test that write_data_to_files preserves URLs from previous runs."""
+        file_writer = FileWriter()
+
+        # Create kometa directory with existing YAML file containing URLs
+        kometa_dir = os.path.join(temp_dir, "out", "kometa")
+        os.makedirs(kometa_dir, exist_ok=True)
+
+        # Create existing YAML file with URLs
+        existing_yaml = """
+metadata:
+  371028: # TVDB id for Arcane. Set by Praythea on MediUX. https://mediux.pro/sets/6347
+    url_poster: https://api.mediux.pro/assets/314c5fea-83d2-4264-9a17-7d8f65713119
+"""
+
+        with open(os.path.join(kometa_dir, "arcane_data.yml"), "w") as f:
+            f.write(existing_yaml)
+
+        # Mock the URL collection to return existing URLs
+        with patch.object(
+            file_writer, "_collect_existing_urls_from_yaml_files"
+        ) as mock_collect:
+            mock_collect.return_value = {"https://mediux.pro/sets/6347"}
+
+            with patch.object(file_writer, "logger") as mock_logger:
+                with patch("modules.file_manager.CacheManager"):
+                    # Execute write_data_to_files with new data
+                    new_data = {"abbott": {"402910": "title: 'Abbott Elementary'"}}
+
+                    file_writer.write_data_to_files(
+                        new_data=new_data,
+                        cache={},
+                        cache_file=None,
+                        output_dir_global=None,
+                    )
+
+                    # Verify that existing URLs were collected
+                    mock_collect.assert_called_once()
+                    mock_logger.info.assert_any_call("Writing data to files...")
+
+    def test_write_data_to_files_empty_new_data_with_existing_urls(self, temp_dir):
+        """Test write_data_to_files with empty new_data but existing URLs."""
+        file_writer = FileWriter()
+
+        # Create kometa directory
+        kometa_dir = os.path.join(temp_dir, "out", "kometa")
+        os.makedirs(kometa_dir, exist_ok=True)
+
+        with patch.object(
+            file_writer, "_collect_existing_urls_from_yaml_files"
+        ) as mock_collect:
+            mock_collect.return_value = {
+                "https://mediux.pro/sets/6347",
+                "https://mediux.pro/sets/27137",
+            }
+
+            with patch.object(file_writer, "logger") as mock_logger:
+                with patch("modules.file_manager.CacheManager"):
+                    # Execute with empty new data
+                    file_writer.write_data_to_files(
+                        new_data={},  # No new data
+                        cache={},
+                        cache_file=None,
+                        output_dir_global=None,
+                    )
+
+                    # Verify behavior with no new data files
+                    mock_collect.assert_called_once()
+                    mock_logger.info.assert_any_call("No data files were updated.")
+
+    def test_backward_compatibility_old_collect_existing_urls(self):
+        """Test that the old _collect_existing_urls method still works for backward compatibility."""
+        file_writer = FileWriter()
+
+        with patch(
+            "modules.file_manager.os.listdir", return_value=["folder1", "folder2"]
+        ):
+            with patch("modules.file_manager.os.path.isdir", return_value=True):
+                with patch("modules.data_processor.SetURLExtractor") as mock_extractor:
+                    with patch(
+                        "modules.file_manager.BulkDataManager"
+                    ) as mock_bulk_manager:
+                        mock_instance = Mock()
+                        mock_instance.extract_set_urls.return_value = {
+                            "https://mediux.pro/sets/12345"
+                        }
+                        mock_extractor.return_value = mock_instance
+
+                        mock_bulk_instance = Mock()
+                        mock_bulk_instance.load_bulk_data.return_value = {
+                            "https://mediux.pro/sets/12345"
+                        }
+                        mock_bulk_manager.return_value = mock_bulk_instance
+
+                        result = file_writer._collect_existing_urls("/test/root")
+
+                        assert "https://mediux.pro/sets/12345" in result

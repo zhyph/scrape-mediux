@@ -373,13 +373,6 @@ def write_data_to_files(root_folder_path=None, output_dir=None):
     # Import globals and functions here to avoid circular imports
     from modules.file_manager import FileWriter
 
-    if not root_folder_path:
-        logger.error("Root folder is not set. Cannot write data.")
-        return
-
-    from modules.config import validate_path
-
-    validate_path(path=root_folder_path, description="Root folder")
     logger.info("Writing data to files...")
 
     file_writer = FileWriter()
@@ -395,7 +388,6 @@ def write_data_to_files(root_folder_path=None, output_dir=None):
 
     file_writer.write_data_to_files(
         new_data=new_data,
-        root_folder_global=root_folder_path,
         cache=cache if cache_config.should_save_cache() else {},
         cache_file=(
             cache_config.get_cache_file_path("tmdb_cache.pkl")

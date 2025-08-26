@@ -61,23 +61,51 @@ class TestWriteDataToFiles:
                                 )
                                 mock_file_writer.write_data_to_files.assert_called_once_with(
                                     new_data={"folder1": {"tt0111161": "data"}},
-                                    root_folder_global="/test/root",
                                     cache={"cache": "data"},
                                     cache_file="/cache/tmdb_cache.pkl",
                                     output_dir_global="/test/output",
                                 )
 
-    def test_write_data_to_files_no_root_folder(self, caplog):
-        """Test that function exits early when no root folder is provided."""
-        # Set logging level to capture ERROR messages
-        import logging
+    def test_write_data_to_files_no_root_folder(self):
+        """Test that function works correctly when no root folder is provided."""
+        with patch("modules.orchestrator.new_data", {"test": {"tt0111161": "data"}}):
+            with patch("modules.orchestrator.cache", {"cache": "data"}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        with patch(
+                            "modules.intelligent_cache.get_cache_manager"
+                        ) as mock_get_cache:
+                            # Setup mocks
+                            mock_cache_config.should_save_cache.return_value = True
+                            mock_cache_config.get_cache_file_path.side_effect = [
+                                "/cache/intelligent_cache.pkl",
+                                "/cache/tmdb_cache.pkl",
+                            ]
 
-        logger = logging.getLogger("modules.orchestrator")
-        logger.setLevel(logging.INFO)
+                            mock_file_writer = Mock()
+                            mock_file_writer_class.return_value = mock_file_writer
 
-        write_data_to_files(root_folder_path=None)
+                            mock_cache_manager = Mock()
+                            mock_get_cache.return_value = mock_cache_manager
 
-        assert "Root folder is not set. Cannot write data." in caplog.text
+                            # Execute function
+                            write_data_to_files(
+                                root_folder_path=None,
+                                output_dir="/test/output",
+                            )
+
+                            # Verify calls - should work without root folder now
+                            mock_cache_manager.save_cache.assert_called_once_with(
+                                "/cache/intelligent_cache.pkl"
+                            )
+                            mock_file_writer.write_data_to_files.assert_called_once_with(
+                                new_data={"test": {"tt0111161": "data"}},
+                                cache={"cache": "data"},
+                                cache_file="/cache/tmdb_cache.pkl",
+                                output_dir_global="/test/output",
+                            )
 
     def test_write_data_to_files_cache_disabled(self):
         """Test data writing with cache disabled."""
@@ -107,7 +135,6 @@ class TestWriteDataToFiles:
                                 mock_get_cache.assert_not_called()
                                 mock_file_writer.write_data_to_files.assert_called_once_with(
                                     new_data={"folder1": {"tt0111161": "data"}},
-                                    root_folder_global="/test/root",
                                     cache={},  # Empty cache when disabled
                                     cache_file=None,  # No cache file when disabled
                                     output_dir_global="/test/output",
@@ -132,7 +159,6 @@ class TestWriteDataToFiles:
 
                             mock_file_writer.write_data_to_files.assert_called_once_with(
                                 new_data={},
-                                root_folder_global="/test/root",
                                 cache={},
                                 cache_file=None,
                                 output_dir_global="/test/output",
@@ -180,12 +206,6 @@ def test_orchestrator_write_data_to_files_integration():
                             assert mock_file_writer.write_data_to_files.call_args[1][
                                 "new_data"
                             ] == {"test_folder": {"tt0111161": "test_data"}}
-                            assert (
-                                mock_file_writer.write_data_to_files.call_args[1][
-                                    "root_folder_global"
-                                ]
-                                == "/test/media"
-                            )
                             assert (
                                 mock_file_writer.write_data_to_files.call_args[1][
                                     "output_dir_global"
@@ -238,29 +258,41 @@ def test_run_function_setup_phase(mock_time):
                                                                 mock_cache_config = (
                                                                     Mock()
                                                                 )
-                                                                mock_cache_config.clear_cache = False
-                                                                mock_cache_config.should_save_cache.return_value = True
+                                                                mock_cache_config.clear_cache = (
+                                                                    False
+                                                                )
+                                                                mock_cache_config.should_save_cache.return_value = (
+                                                                    True
+                                                                )
                                                                 mock_cache_config.get_cache_file_path.side_effect = [
                                                                     "/cache/tmdb_cache.pkl",
                                                                     "/cache/intelligent_cache.pkl",
                                                                 ]
-                                                                mock_cache_config_class.return_value = mock_cache_config
+                                                                mock_cache_config_class.return_value = (
+                                                                    mock_cache_config
+                                                                )
 
                                                                 mock_cache_manager = (
                                                                     Mock()
                                                                 )
-                                                                mock_cache_manager_class.return_value = mock_cache_manager
+                                                                mock_cache_manager_class.return_value = (
+                                                                    mock_cache_manager
+                                                                )
                                                                 mock_cache_manager.load_cache.return_value = {
                                                                     "test": "cache"
                                                                 }
 
-                                                                mock_intelligent_cache = Mock()
+                                                                mock_intelligent_cache = (
+                                                                    Mock()
+                                                                )
                                                                 mock_get_cache.return_value = mock_intelligent_cache
 
                                                                 mock_bulk_manager = (
                                                                     Mock()
                                                                 )
-                                                                mock_bulk_manager_class.return_value = mock_bulk_manager
+                                                                mock_bulk_manager_class.return_value = (
+                                                                    mock_bulk_manager
+                                                                )
 
                                                                 # Execute function
                                                                 run(
@@ -341,12 +373,6 @@ def test_write_data_to_files_integration():
                             ] == {"test_folder": {"tt0111161": "test_data"}}
                             assert (
                                 mock_file_writer.write_data_to_files.call_args[1][
-                                    "root_folder_global"
-                                ]
-                                == "/test/media"
-                            )
-                            assert (
-                                mock_file_writer.write_data_to_files.call_args[1][
                                     "output_dir_global"
                                 ]
                                 == "/test/output"
@@ -408,25 +434,37 @@ class TestRunFunction:
                                                                         "modules.orchestrator.os.remove"
                                                                     ):  # Mock file removal
                                                                         # Setup mocks
-                                                                        mock_cache_config = Mock()
-                                                                        mock_cache_config.clear_cache = True
-                                                                        mock_cache_config.should_save_cache.return_value = True
+                                                                        mock_cache_config = (
+                                                                            Mock()
+                                                                        )
+                                                                        mock_cache_config.clear_cache = (
+                                                                            True
+                                                                        )
+                                                                        mock_cache_config.should_save_cache.return_value = (
+                                                                            True
+                                                                        )
                                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                                             "/cache/tmdb_cache.pkl",
                                                                             "/cache/intelligent_cache.pkl",
                                                                         ]
                                                                         mock_cache_config_class.return_value = mock_cache_config
 
-                                                                        mock_cache_manager = Mock()
+                                                                        mock_cache_manager = (
+                                                                            Mock()
+                                                                        )
                                                                         mock_cache_manager_class.return_value = mock_cache_manager
                                                                         mock_cache_manager.load_cache.return_value = {
                                                                             "test": "cache"
                                                                         }
 
-                                                                        mock_intelligent_cache = Mock()
+                                                                        mock_intelligent_cache = (
+                                                                            Mock()
+                                                                        )
                                                                         mock_get_cache.return_value = mock_intelligent_cache
 
-                                                                        mock_bulk_manager = Mock()
+                                                                        mock_bulk_manager = (
+                                                                            Mock()
+                                                                        )
                                                                         mock_bulk_manager_class.return_value = mock_bulk_manager
 
                                                                         # Execute function
@@ -497,14 +535,22 @@ class TestRunFunction:
                                                         ):  # Mock file removal
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.disable_cache = True
-                                                            mock_cache_config.clear_cache = False
-                                                            mock_cache_config.should_save_cache.return_value = False
+                                                            mock_cache_config.disable_cache = (
+                                                                True
+                                                            )
+                                                            mock_cache_config.clear_cache = (
+                                                                False
+                                                            )
+                                                            mock_cache_config.should_save_cache.return_value = (
+                                                                False
+                                                            )
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = mock_cache_config
+                                                            mock_cache_config_class.return_value = (
+                                                                mock_cache_config
+                                                            )
 
                                                             # Execute function with cache disabled
                                                             run(
@@ -567,13 +613,19 @@ class TestRunFunction:
                                                         ):
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.clear_cache = True
+                                                            mock_cache_config.clear_cache = (
+                                                                True
+                                                            )
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = mock_cache_config
-                                                            mock_cache_config.should_save_cache.return_value = True
+                                                            mock_cache_config_class.return_value = (
+                                                                mock_cache_config
+                                                            )
+                                                            mock_cache_config.should_save_cache.return_value = (
+                                                                True
+                                                            )
 
                                                             # Execute function with cache clearing
                                                             run(
@@ -639,16 +691,24 @@ class TestRunFunction:
                                                         ):
                                                             # Setup mocks
                                                             mock_cache_config = Mock()
-                                                            mock_cache_config.clear_cache = False
-                                                            mock_cache_config.should_save_cache.return_value = True
+                                                            mock_cache_config.clear_cache = (
+                                                                False
+                                                            )
+                                                            mock_cache_config.should_save_cache.return_value = (
+                                                                True
+                                                            )
                                                             mock_cache_config.get_cache_file_path.side_effect = [
                                                                 "/cache/tmdb_cache.pkl",
                                                                 "/cache/intelligent_cache.pkl",
                                                             ]
-                                                            mock_cache_config_class.return_value = mock_cache_config
+                                                            mock_cache_config_class.return_value = (
+                                                                mock_cache_config
+                                                            )
 
                                                             mock_bulk_manager = Mock()
-                                                            mock_bulk_manager_class.return_value = mock_bulk_manager
+                                                            mock_bulk_manager_class.return_value = (
+                                                                mock_bulk_manager
+                                                            )
 
                                                             # Execute function with Plex libraries
                                                             run(
@@ -716,7 +776,9 @@ class TestRunFunction:
                                                 # Setup mocks
                                                 mock_cache_config = Mock()
                                                 mock_cache_config.clear_cache = True
-                                                mock_cache_config.should_save_cache.return_value = True
+                                                mock_cache_config.should_save_cache.return_value = (
+                                                    True
+                                                )
                                                 mock_cache_config.get_cache_file_path.side_effect = [
                                                     "/cache/tmdb_cache.pkl",
                                                     "/cache/intelligent_cache.pkl",
@@ -806,17 +868,27 @@ class TestRunFunction:
                                                     ):  # Mock file removal
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = True
-                                                        mock_cache_config.should_save_cache.return_value = True
+                                                        mock_cache_config.clear_cache = (
+                                                            True
+                                                        )
+                                                        mock_cache_config.should_save_cache.return_value = (
+                                                            True
+                                                        )
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = mock_cache_config
+                                                        mock_cache_config_class.return_value = (
+                                                            mock_cache_config
+                                                        )
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = mock_webdriver_manager
-                                                        mock_webdriver_manager.init_driver.return_value = Mock()
+                                                        mock_webdriver_class.return_value = (
+                                                            mock_webdriver_manager
+                                                        )
+                                                        mock_webdriver_manager.init_driver.return_value = (
+                                                            Mock()
+                                                        )
 
                                                         # Execute function
                                                         run(
@@ -943,20 +1015,32 @@ class TestRunFunction:
                                                     ):  # Mock file removal
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = True
-                                                        mock_cache_config.should_save_cache.return_value = True
+                                                        mock_cache_config.clear_cache = (
+                                                            True
+                                                        )
+                                                        mock_cache_config.should_save_cache.return_value = (
+                                                            True
+                                                        )
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = mock_cache_config
+                                                        mock_cache_config_class.return_value = (
+                                                            mock_cache_config
+                                                        )
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = mock_webdriver_manager
-                                                        mock_webdriver_manager.init_driver.return_value = Mock()
+                                                        mock_webdriver_class.return_value = (
+                                                            mock_webdriver_manager
+                                                        )
+                                                        mock_webdriver_manager.init_driver.return_value = (
+                                                            Mock()
+                                                        )
 
                                                         mock_discord = Mock()
-                                                        mock_discord_class.return_value = mock_discord
+                                                        mock_discord_class.return_value = (
+                                                            mock_discord
+                                                        )
 
                                                         # Execute function with Discord notifications
                                                         run(
@@ -1036,20 +1120,32 @@ class TestRunFunction:
                                                     ):  # Mock file removal
                                                         # Setup mocks
                                                         mock_cache_config = Mock()
-                                                        mock_cache_config.clear_cache = True
-                                                        mock_cache_config.should_save_cache.return_value = True
+                                                        mock_cache_config.clear_cache = (
+                                                            True
+                                                        )
+                                                        mock_cache_config.should_save_cache.return_value = (
+                                                            True
+                                                        )
                                                         mock_cache_config.get_cache_file_path.side_effect = [
                                                             "/cache/tmdb_cache.pkl",
                                                             "/cache/intelligent_cache.pkl",
                                                         ]
-                                                        mock_cache_config_class.return_value = mock_cache_config
+                                                        mock_cache_config_class.return_value = (
+                                                            mock_cache_config
+                                                        )
 
                                                         mock_webdriver_manager = Mock()
-                                                        mock_webdriver_class.return_value = mock_webdriver_manager
-                                                        mock_webdriver_manager.init_driver.return_value = Mock()
+                                                        mock_webdriver_class.return_value = (
+                                                            mock_webdriver_manager
+                                                        )
+                                                        mock_webdriver_manager.init_driver.return_value = (
+                                                            Mock()
+                                                        )
 
                                                         mock_login_manager = Mock()
-                                                        mock_login_class.return_value = mock_login_manager
+                                                        mock_login_class.return_value = (
+                                                            mock_login_manager
+                                                        )
 
                                                         # Execute function
                                                         run(
@@ -1089,3 +1185,305 @@ class TestRunFunction:
                                                             mock_login_manager.login.call_count
                                                             >= 2
                                                         )  # Initial + recovery
+
+
+class TestOrchestratorRegression:
+    """Regression tests for recent changes to orchestrator module."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        # Reset global variables
+        import modules.orchestrator as orch
+
+        orch.new_data = defaultdict(dict)
+        orch.cache = {}
+        orch.folder_bulk_data = {}
+        orch.cache_config = Mock()
+
+    def test_write_data_to_files_integration_plex_mode(self):
+        """Test write_data_to_files integration with Plex-only mode."""
+        # Mock the global variables that the function uses
+        with patch(
+            "modules.orchestrator.new_data",
+            {"plex_library": {"tt0111161": "test_data"}},
+        ):
+            with patch("modules.orchestrator.cache", {"test": "cache_data"}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        with patch(
+                            "modules.intelligent_cache.get_cache_manager"
+                        ) as mock_get_cache:
+                            # Setup mocks
+                            mock_cache_config.should_save_cache.return_value = True
+                            mock_cache_config.get_cache_file_path.side_effect = [
+                                "/cache/intelligent_cache.pkl",
+                                "/cache/tmdb_cache.pkl",
+                            ]
+
+                            mock_file_writer = Mock()
+                            mock_file_writer_class.return_value = mock_file_writer
+
+                            mock_cache_manager = Mock()
+                            mock_get_cache.return_value = mock_cache_manager
+
+                            # Execute function with Plex-only mode (no root_folder_path)
+                            write_data_to_files(
+                                root_folder_path=None,
+                                output_dir="/test/output",
+                            )
+
+                            # Verify the function completed successfully
+                            mock_file_writer.write_data_to_files.assert_called_once()
+                            assert mock_file_writer.write_data_to_files.call_args[1][
+                                "new_data"
+                            ] == {"plex_library": {"tt0111161": "test_data"}}
+                            assert (
+                                mock_file_writer.write_data_to_files.call_args[1][
+                                    "output_dir_global"
+                                ]
+                                == "/test/output"
+                            )
+                            # Verify no root_folder_global parameter is passed
+                            assert (
+                                "root_folder_global"
+                                not in mock_file_writer.write_data_to_files.call_args[1]
+                            )
+
+    def test_write_data_to_files_integration_folder_mode(self):
+        """Test write_data_to_files integration with folder-based mode."""
+        # Mock the global variables that the function uses
+        with patch(
+            "modules.orchestrator.new_data",
+            {"folder_based": {"tt0111161": "test_data"}},
+        ):
+            with patch("modules.orchestrator.cache", {"test": "cache_data"}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        with patch(
+                            "modules.intelligent_cache.get_cache_manager"
+                        ) as mock_get_cache:
+                            # Setup mocks
+                            mock_cache_config.should_save_cache.return_value = True
+                            mock_cache_config.get_cache_file_path.side_effect = [
+                                "/cache/intelligent_cache.pkl",
+                                "/cache/tmdb_cache.pkl",
+                            ]
+
+                            mock_file_writer = Mock()
+                            mock_file_writer_class.return_value = mock_file_writer
+
+                            mock_cache_manager = Mock()
+                            mock_get_cache.return_value = mock_cache_manager
+
+                            # Execute function with folder-based mode (with root_folder_path)
+                            write_data_to_files(
+                                root_folder_path="/test/media",
+                                output_dir="/test/output",
+                            )
+
+                            # Verify the function completed successfully
+                            mock_file_writer.write_data_to_files.assert_called_once()
+                            assert mock_file_writer.write_data_to_files.call_args[1][
+                                "new_data"
+                            ] == {"folder_based": {"tt0111161": "test_data"}}
+                            assert (
+                                mock_file_writer.write_data_to_files.call_args[1][
+                                    "output_dir_global"
+                                ]
+                                == "/test/output"
+                            )
+
+    def test_write_data_to_files_url_collection_plex_vs_folder_mode(self):
+        """Test that URL collection works differently in Plex vs folder mode."""
+        # Test data
+        new_data = {"test_show": {"tt0111161": "title: 'Test Show'"}}
+
+        with patch("modules.orchestrator.new_data", new_data):
+            with patch("modules.orchestrator.cache", {}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        with patch("modules.intelligent_cache.get_cache_manager"):
+                            # Setup mocks
+                            mock_cache_config.should_save_cache.return_value = False
+
+                            mock_file_writer = Mock()
+                            mock_file_writer_class.return_value = mock_file_writer
+
+                            # Test 1: Plex mode (no root folder)
+                            write_data_to_files(
+                                root_folder_path=None,
+                                output_dir="/test/output",
+                            )
+
+                            # Verify URL collection was called (YAML-based)
+                            mock_file_writer.write_data_to_files.assert_called_once()
+                            call_kwargs = (
+                                mock_file_writer.write_data_to_files.call_args[1]
+                            )
+                            assert call_kwargs["new_data"] == new_data
+                            assert "root_folder_global" not in call_kwargs
+
+                            # Reset mock
+                            mock_file_writer.reset_mock()
+
+                            # Test 2: Folder mode (with root folder)
+                            write_data_to_files(
+                                root_folder_path="/test/media",
+                                output_dir="/test/output",
+                            )
+
+                            # Verify function was called again
+                            assert mock_file_writer.write_data_to_files.call_count == 1
+
+    def test_write_data_to_files_empty_data_plex_mode(self):
+        """Test write_data_to_files with empty data in Plex mode."""
+        with patch("modules.orchestrator.new_data", {}):  # Empty data
+            with patch("modules.orchestrator.cache", {}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        # Setup mocks
+                        mock_cache_config.should_save_cache.return_value = False
+
+                        mock_file_writer = Mock()
+                        mock_file_writer_class.return_value = mock_file_writer
+
+                        # Execute function with empty data
+                        write_data_to_files(
+                            root_folder_path=None,
+                            output_dir="/test/output",
+                        )
+
+                        # Verify function was called with empty data
+                        mock_file_writer.write_data_to_files.assert_called_once_with(
+                            new_data={},
+                            cache={},
+                            cache_file=None,
+                            output_dir_global="/test/output",
+                        )
+
+    def test_write_data_to_files_permission_error_handling(self):
+        """Test write_data_to_files handles permission errors gracefully."""
+        with patch("modules.orchestrator.new_data", {}):
+            with patch("modules.orchestrator.cache", {}):
+                with patch("modules.orchestrator.cache_config") as mock_cache_config:
+                    with patch(
+                        "modules.file_manager.FileWriter"
+                    ) as mock_file_writer_class:
+                        with patch("modules.intelligent_cache.get_cache_manager"):
+                            # Setup mocks
+                            mock_cache_config.should_save_cache.return_value = False
+
+                            mock_file_writer = Mock()
+                            mock_file_writer_class.return_value = mock_file_writer
+
+                            # Execute function - should handle permission error gracefully
+                            write_data_to_files(
+                                root_folder_path=None,
+                                output_dir="/test/output",
+                            )
+
+                            # Verify FileWriter was still called despite the error
+                            mock_file_writer.write_data_to_files.assert_called_once()
+
+    def test_run_function_plex_mode_integration(self, mock_time):
+        """Test complete run function in Plex-only mode."""
+        with patch("modules.orchestrator.time.time", side_effect=mock_time):
+            with patch("modules.cache_config.CacheConfig") as mock_cache_config_class:
+                with patch("modules.orchestrator.cache_config", Mock()):
+                    with patch(
+                        "modules.orchestrator.os.path.exists", return_value=True
+                    ):
+                        with patch("modules.orchestrator.os.makedirs"):
+                            with patch(
+                                "modules.media_discovery.get_media_ids",
+                                return_value=([], {}),
+                            ):
+                                with patch("modules.scraper.WebDriverManager"):
+                                    with patch("modules.scraper.MediuxLoginManager"):
+                                        with patch(
+                                            "modules.media_processing.process_single_media_item"
+                                        ):
+                                            with patch(
+                                                "modules.orchestrator.write_data_to_files"
+                                            ) as mock_write_data:
+                                                with patch(
+                                                    "modules.external_services.DiscordNotifier"
+                                                ):
+                                                    with patch(
+                                                        "modules.orchestrator.os.remove"
+                                                    ):
+                                                        with patch(
+                                                            "modules.file_manager.BulkDataManager"
+                                                        ):
+                                                            # Setup mocks
+                                                            mock_cache_config = Mock()
+                                                            mock_cache_config.clear_cache = (
+                                                                False
+                                                            )
+                                                            mock_cache_config.should_save_cache.return_value = (
+                                                                True
+                                                            )
+                                                            mock_cache_config.get_cache_file_path.side_effect = [
+                                                                "/cache/tmdb_cache.pkl",
+                                                                "/cache/intelligent_cache.pkl",
+                                                            ]
+                                                            mock_cache_config_class.return_value = (
+                                                                mock_cache_config
+                                                            )
+
+                                                            # Execute function in Plex-only mode (no root_folder_global)
+                                                            run(
+                                                                api_key="test_key",
+                                                                username="test_user",
+                                                                password="test_pass",
+                                                                profile_path="/test/profile",
+                                                                nickname="test_nick",
+                                                                sonarr_api_key=None,
+                                                                sonarr_endpoint=None,
+                                                                root_folder_global=None,  # Plex mode
+                                                                output_dir_global=None,
+                                                                discord_webhook_url_global=None,
+                                                                selected_folders=None,
+                                                                headless=True,
+                                                                process_all=False,
+                                                                chromedriver_path=None,
+                                                                retry_on_yaml_failure=False,
+                                                                preferred_users=None,
+                                                                excluded_users=None,
+                                                                disable_season_fix=False,
+                                                                remove_paths=None,
+                                                                plex_url="http://plex:32400",
+                                                                plex_token="test_token",
+                                                                plex_libraries=[
+                                                                    "Movies"
+                                                                ],
+                                                                disable_cache=False,
+                                                                clear_cache=False,
+                                                                cache_dir="./out",
+                                                            )
+
+                                                            # Verify write_data_to_files was called in Plex mode
+                                                            mock_write_data.assert_called_once()
+                                                            call_kwargs = mock_write_data.call_args[
+                                                                1
+                                                            ]
+                                                            assert (
+                                                                call_kwargs[
+                                                                    "root_folder_path"
+                                                                ]
+                                                                is None
+                                                            )
+                                                            assert (
+                                                                call_kwargs[
+                                                                    "output_dir"
+                                                                ]
+                                                                is None
+                                                            )

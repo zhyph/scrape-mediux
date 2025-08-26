@@ -150,6 +150,34 @@ class FileWriter:
         self.logger = logging.getLogger(__name__)
         self.cache_manager = get_cache_manager()
 
+    def _collect_existing_urls_from_yaml_files(self) -> Set[str]:
+        """
+        Collect existing set URLs from all YAML files in the kometa output directory.
+
+        Returns:
+            Set of existing URLs
+        """
+        existing_urls = set()
+        kometa_dir = "./out/kometa"
+
+        if not os.path.exists(kometa_dir):
+            self.logger.debug("Kometa output directory doesn't exist yet")
+            return existing_urls
+
+        # Scan all YAML files in the kometa directory
+        for filename in os.listdir(kometa_dir):
+            if filename.endswith("_data.yml"):
+                file_path = os.path.join(kometa_dir, filename)
+                bulk_manager = BulkDataManager()
+                file_urls = bulk_manager.load_bulk_data(
+                    bulk_data_file=file_path, only_set_urls=True
+                )
+                existing_urls.update(file_urls)
+                self.logger.debug(f"Collected {len(file_urls)} URLs from {filename}")
+
+        self.logger.debug(f"Total existing URLs collected: {len(existing_urls)}")
+        return existing_urls
+
     def _collect_existing_urls(
         self, root_folder_global: Union[str, List[str]]
     ) -> Set[str]:
@@ -272,7 +300,6 @@ class FileWriter:
     def write_data_to_files(
         self,
         new_data: Dict[str, Dict[str, str]],
-        root_folder_global: Union[str, List[str]],
         cache: Dict[str, Tuple[Optional[str], Optional[str]]],
         cache_file: Optional[str],
         output_dir_global: Optional[str],
@@ -282,25 +309,17 @@ class FileWriter:
 
         Args:
             new_data: New data to write
-            root_folder_global: Root folder for URL collection
             cache: Cache to save
             cache_file: Cache file path
             output_dir_global: Output directory for copying files
         """
-        if not root_folder_global:
-            self.logger.error("Root folder is not set. Cannot write data.")
-            return
-
-        from modules.config import validate_path
-
-        validate_path(path=root_folder_global, description="Root folder")
-
         self.logger.info("Writing data to files...")
 
         os.makedirs("./out/kometa", exist_ok=True)
         self.logger.debug("Ensured output directory './out/kometa' exists.")
 
-        existing_urls = self._collect_existing_urls(root_folder_global)
+        # Collect existing URLs from all YAML files in kometa directory
+        existing_urls = self._collect_existing_urls_from_yaml_files()
 
         updated_files_list = []
 
