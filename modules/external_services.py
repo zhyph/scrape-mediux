@@ -282,10 +282,7 @@ class MediaDiscoveryService:
 
         # Try intelligent cache first
         cache_manager = get_cache_manager()
-        root_key = (
-            str(root_folder) if isinstance(root_folder, str) else ":".join(root_folder)
-        )
-        cache_key = f"{root_key}:{selected_folders or []}"
+        cache_key = self._generate_folder_cache_key(root_folder, selected_folders)
 
         cached_result = cache_manager.cache.get("media_ids", cache_key)
         if cached_result:
@@ -327,6 +324,79 @@ class MediaDiscoveryService:
         # Cache the result for future use
         cache_manager.cache.set("media_ids", cache_key, result)
         return result
+
+    def _generate_folder_cache_key(
+        self,
+        root_folder: Union[str, List[str]],
+        selected_folders: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Generate a cache key that includes folder content information to detect changes.
+
+        Args:
+            root_folder: Root folder(s) to scan
+            selected_folders: Optional list of specific folders to process
+
+        Returns:
+            Cache key string that changes when folder contents change
+        """
+        import os
+        import hashlib
+
+        # Base key components
+        root_key = (
+            str(root_folder) if isinstance(root_folder, str) else ":".join(root_folder)
+        )
+        folder_key = str(sorted(selected_folders or []))
+
+        # Get folder modification information
+        folder_info = []
+        root_folders = root_folder if isinstance(root_folder, list) else [root_folder]
+
+        for root in root_folders:
+            if not root or not os.path.exists(root):
+                continue
+
+            try:
+                # Get root folder modification time
+                root_mtime = os.path.getmtime(root)
+                folder_info.append(f"root_mtime:{root_mtime}")
+
+                # Get list of subdirectories if not using selected_folders
+                if not selected_folders:
+                    subdirs = []
+                    for item in os.listdir(root):
+                        item_path = os.path.join(root, item)
+                        if os.path.isdir(item_path):
+                            # Include subdirectory name and its modification time
+                            item_mtime = os.path.getmtime(item_path)
+                            subdirs.append(f"{item}:{item_mtime}")
+
+                    # Sort for consistent ordering
+                    subdirs.sort()
+                    folder_info.append(f"subdirs:{'|'.join(subdirs)}")
+                else:
+                    # When using selected_folders, include their modification times
+                    selected_info = []
+                    for folder in selected_folders:
+                        folder_path = os.path.join(root, folder)
+                        if os.path.exists(folder_path):
+                            folder_mtime = os.path.getmtime(folder_path)
+                            selected_info.append(f"{folder}:{folder_mtime}")
+
+                    selected_info.sort()
+                    folder_info.append(f"selected:{'|'.join(selected_info)}")
+
+            except OSError as e:
+                self.logger.warning(f"Could not get folder info for {root}: {e}")
+                folder_info.append(f"error:{root}")
+
+        # Combine all information into a hash
+        key_components = [root_key, folder_key] + sorted(folder_info)
+        key_string = "|".join(key_components)
+
+        # Use MD5 hash to keep key length reasonable
+        return hashlib.md5(key_string.encode()).hexdigest()
 
     def _extract_media_info_from_subfolder(
         self, subfolder: str

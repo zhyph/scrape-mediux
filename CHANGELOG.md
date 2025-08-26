@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [25.08.25.21]
+
+### Fixed
+
+- **Fixed media_ids caching issue** in `modules/external_services.py`:
+  - Enhanced cache key generation in `get_media_ids_from_folder()` to include folder modification times
+  - Added `_generate_folder_cache_key()` method that detects folder content changes
+  - Cache now invalidates automatically when new media folders are added to root folder
+  - Solves issue where new entries weren't discovered unless cache was bypassed
+
 ## [25.08.25.20]
 
 ### Changed
