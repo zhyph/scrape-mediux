@@ -33,9 +33,8 @@ RUN apk add --no-cache \
 
 COPY --from=builder /opt/venv /opt/venv
 
-# Use PUID and PGID environment variables or default to 1000
-ARG PUID=1000
-ARG PGID=1000
+ARG PUID=0
+ARG PGID=0
 ENV PUID=${PUID}
 ENV PGID=${PGID}
 
