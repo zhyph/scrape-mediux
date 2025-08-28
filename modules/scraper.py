@@ -21,8 +21,9 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-# Import intelligent cache
+# Import intelligent cache and automation constants
 from modules.intelligent_cache import get_cache_manager
+from modules.base import WebAutomationConstants, MediuxConfig, WebSelectors
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ class WebDriverManager:
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--disable-software-rasterizer")
-            options.add_argument("--remote-debugging-port=9222")
+            options.add_argument(f"--remote-debugging-port={WebAutomationConstants.CHROME_REMOTE_DEBUGGING_PORT}")
 
         if profile_path:
             options.add_argument(f"--user-data-dir={profile_path}")
@@ -81,7 +82,7 @@ class WebDriverManager:
                     options=options,
                 )
 
-            driver.set_page_load_timeout(300)  # 5 minutes
+            driver.set_page_load_timeout(WebAutomationConstants.PAGE_LOAD_TIMEOUT)
             self.logger.debug("WebDriver initialized successfully.")
             return driver
 
@@ -141,12 +142,11 @@ class MediuxLoginManager:
             Exception: If login fails
         """
         self.logger.debug("Checking login status on Mediux...")
-        base_url = "https://mediux.pro"
-        driver.get(base_url)
+        driver.get(MediuxConfig.BASE_URL)
 
         try:
             # Check if already logged in
-            WebDriverWait(driver, 5).until(
+            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT).until(
                 EC.presence_of_element_located(
                     (By.XPATH, f"//button[contains(text(), '{nickname}')]")
                 )
@@ -159,7 +159,7 @@ class MediuxLoginManager:
 
         try:
             # Click sign in button
-            login_button = WebDriverWait(driver, 10).until(
+            login_button = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
                 EC.presence_of_element_located(
                     (By.XPATH, "//button[contains(text(), 'Sign In')]")
                 )
@@ -167,7 +167,7 @@ class MediuxLoginManager:
             login_button.click()
 
             # Wait for login form to load
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
                 EC.presence_of_element_located((By.ID, ":r0:-form-item"))
             )
 
@@ -182,7 +182,7 @@ class MediuxLoginManager:
             submit_button.click()
 
             # Wait for login confirmation
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
                 EC.presence_of_element_located(
                     (By.XPATH, f"//button[contains(text(), '{nickname}')]")
                 )
@@ -251,15 +251,14 @@ class MediuxScraper:
         Returns:
             Tuple of (url, updating_text, success_text)
         """
-        base_url = "https://mediux.pro"
         if media_type == "movie":
-            url = f"{base_url}/movies/{tmdb_id}"
-            updating_text = "Updating movie data"
-            success_text = "Movie updated successfully"
+            url = MediuxConfig.get_movie_url(tmdb_id)
+            updating_text = MediuxConfig.MOVIE_UPDATING_TEXT
+            success_text = MediuxConfig.MOVIE_UPDATE_SUCCESS
         else:
-            url = f"{base_url}/shows/{tmdb_id}"
-            updating_text = "Updating show data"
-            success_text = "Show updated successfully"
+            url = MediuxConfig.get_show_url(tmdb_id)
+            updating_text = MediuxConfig.SHOW_UPDATING_TEXT
+            success_text = MediuxConfig.SHOW_UPDATE_SUCCESS
         return url, updating_text, success_text
 
     def wait_for_update_completion(
@@ -294,7 +293,7 @@ class MediuxScraper:
                     f"Waiting for update completion for {media_type} {tmdb_id}..."
                 )
 
-                WebDriverWait(driver, 30).until(
+                WebDriverWait(driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT).until(
                     lambda d: (
                         len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
                         or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
@@ -311,7 +310,7 @@ class MediuxScraper:
                         f"Update process completed for {media_type} {tmdb_id}"
                     )
 
-                time.sleep(1)
+                time.sleep(WebAutomationConstants.BRIEF_DELAY)
             else:
                 if success_elements:
                     self.logger.debug(
@@ -357,7 +356,7 @@ class MediuxScraper:
                 self.logger.debug(
                     f"Page status: Refresh completed for {media_type} {tmdb_id}"
                 )
-                time.sleep(1)
+                time.sleep(WebAutomationConstants.BRIEF_DELAY)
             else:
                 self.logger.debug(
                     f"Page status: No refresh operation detected for {media_type} {tmdb_id}"
@@ -388,7 +387,7 @@ class MediuxScraper:
         yaml_button = None
 
         try:
-            all_yaml_buttons = WebDriverWait(driver, 10).until(
+            all_yaml_buttons = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
                 EC.presence_of_all_elements_located((By.XPATH, yaml_xpath))
             )
         except TimeoutException:
@@ -526,7 +525,7 @@ class MediuxScraper:
 
         self.logger.debug(f"Navigated to URL: {url}")
         yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
-        time.sleep(5)
+        time.sleep(WebAutomationConstants.STANDARD_DELAY)
 
         self.wait_for_update_completion(
             driver, updating_text, success_text, media_type, tmdb_id
@@ -554,10 +553,10 @@ class MediuxScraper:
             yaml_button.click()
             self.logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
 
-            yaml_element = WebDriverWait(driver, 20).until(
+            yaml_element = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG).until(
                 EC.presence_of_element_located((By.XPATH, "//code"))
             )
-            WebDriverWait(driver, 20).until(
+            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG).until(
                 lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
             )
             yaml_data = yaml_element.get_attribute("innerText")

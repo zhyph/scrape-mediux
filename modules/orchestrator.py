@@ -15,7 +15,7 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 from urllib3.exceptions import ReadTimeoutError
 
 from modules.cache_config import cache_config
-from modules.media_processing import cache, folder_bulk_data, new_data
+from modules.base import ScraperContext
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,9 @@ def run(
     cache_dir="./out",
 ):
     """Main execution function."""
+    # Create centralized scraper context
+    context = ScraperContext()
+
     # Update global cache configuration
     global cache_config
     from modules.cache_config import CacheConfig
@@ -99,7 +102,7 @@ def run(
 
     if cache_config.disable_cache:
         logger.info("🚫 Cache loading and saving disabled - fresh start each time")
-        cache = {}
+        context.clear_cache()
 
         # Create a dummy intelligent cache manager that does nothing
         class DummyCacheManager:
@@ -118,7 +121,7 @@ def run(
         from modules.file_manager import CacheManager
 
         cache_manager = CacheManager()
-        cache = cache_manager.load_cache()
+        context.cache = cache_manager.load_cache()
 
         # Load intelligent cache
         from modules.intelligent_cache import get_cache_manager
@@ -135,7 +138,7 @@ def run(
             else [root_folder_global]
         )
 
-        folder_bulk_data.clear()
+        context.clear_folder_bulk_data()
         for root_path_item in root_folders_list:
             if not root_path_item or not os.path.isdir(root_path_item):
                 continue
@@ -144,7 +147,7 @@ def run(
                     from modules.file_manager import BulkDataManager
 
                     bulk_manager = BulkDataManager()
-                    folder_bulk_data[folder_item] = bulk_manager.load_bulk_data(
+                    context.folder_bulk_data[folder_item] = bulk_manager.load_bulk_data(
                         bulk_data_file=f"./out/kometa/{folder_item}_data.yml"
                     )
 
@@ -157,7 +160,7 @@ def run(
             safe_lib = re.sub(r"[^\w\-]", "_", lib_name.lower())
             from modules.file_manager import BulkDataManager
 
-            folder_bulk_data[lib_name] = BulkDataManager().load_bulk_data(
+            context.folder_bulk_data[lib_name] = BulkDataManager().load_bulk_data(
                 bulk_data_file=f"./out/kometa/{safe_lib}_data.yml"
             )
 
@@ -179,10 +182,7 @@ def run(
     if remove_paths:
         logger.info(f"👤 YAML filtering enabled for {len(remove_paths)} path(s)")
 
-    driver = None
-    updated_titles_list = []
-    fixed_titles_list = []
-    new_data.clear()
+    context.clear_new_data()
 
     # Phase 3: WebDriver Initialization
     logger.info(f"\n{separator}\n🌐 BROWSER INITIALIZATION\n{separator}")
@@ -236,13 +236,9 @@ def run(
                         preferred_users=preferred_users,
                         excluded_users=excluded_users,
                         folder_map_for_media=folder_map_for_media,
-                        updated_titles_list=updated_titles_list,
-                        fixed_titles_list=fixed_titles_list,
                         disable_season_fix=disable_season_fix,
                         remove_paths=remove_paths,
-                        shared_cache=cache,
-                        shared_new_data=new_data,
-                        shared_folder_bulk_data=folder_bulk_data,
+                        context=context,
                     )
                 except (ReadTimeoutError, TimeoutException):
                     logger.error(
@@ -293,15 +289,14 @@ def run(
 
         file_writer = FileWriter()
         file_writer.write_data_to_files(
-            new_data=new_data,
-            cache=cache if cache_config.should_save_cache() else {},
+            new_data=context.new_data,
+            cache=context.cache if cache_config.should_save_cache() else {},
             cache_file=(
                 cache_config.get_cache_file_path("tmdb_cache.pkl")
                 if cache_config.should_save_cache()
                 else None
             ),
             output_dir_global=output_dir_global,
-            root_folder_global=root_folder_global,
         )
 
         logger.info("👤 Shutting down...")
@@ -311,15 +306,17 @@ def run(
         # Enhanced final summary
         logger.info(f"\n{separator}\n📊 FINAL RESULTS\n{separator}")
 
-        if updated_titles_list:
-            logger.info(f"✅ {len(updated_titles_list)} titles were updated:")
-            for title in updated_titles_list:
+        if context.updated_titles_list:
+            logger.info(f"✅ {len(context.updated_titles_list)} titles were updated:")
+            for title in context.updated_titles_list:
                 print(f"   • {title}")
         else:
             logger.info("📋 No titles were updated - all content was up to date")
 
         truly_fixed_and_updated = [
-            title for title in fixed_titles_list if title in updated_titles_list
+            title
+            for title in context.fixed_titles_list
+            if title in context.updated_titles_list
         ]
 
         if truly_fixed_and_updated:
@@ -357,15 +354,15 @@ def run(
                 logger.debug(f"Could not retrieve cache stats: {e}")
 
         # Discord notifications
-        if updated_titles_list and discord_webhook_url_global:
+        if context.updated_titles_list and discord_webhook_url_global:
             max_titles_per_message = 15
-            num_titles = len(updated_titles_list)
+            num_titles = len(context.updated_titles_list)
 
             from modules.external_services import DiscordNotifier
 
             discord_notifier = DiscordNotifier()
             for i in range(0, num_titles, max_titles_per_message):
-                chunk = updated_titles_list[i : i + max_titles_per_message]
+                chunk = context.updated_titles_list[i : i + max_titles_per_message]
                 message_content = "Newly processed/updated titles:\n- " + "\n- ".join(
                     chunk
                 )

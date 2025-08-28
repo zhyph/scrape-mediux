@@ -6,7 +6,6 @@ including scraping logic, data comparison, and result management.
 """
 
 import logging
-from collections import defaultdict
 from io import StringIO
 
 # Import global YAML parser instance
@@ -60,26 +59,25 @@ def process_single_media_item(
     preferred_users,
     excluded_users,
     folder_map_for_media,
-    updated_titles_list,
-    fixed_titles_list,
     disable_season_fix=False,
     media_type_from_plex=None,
     remove_paths=None,
-    shared_cache=None,
-    shared_new_data=None,
-    shared_folder_bulk_data=None,
+    context=None,
 ):
     """Process a single media item."""
-    # Declare globals for fallback
-    global cache, new_data, folder_bulk_data
+    # Import context type hint
+    from modules.base import ScraperContext
 
-    # Use provided resources if available, otherwise use globals
-    if shared_cache is not None:
-        cache = shared_cache
-    if shared_new_data is not None:
-        new_data = shared_new_data
-    if shared_folder_bulk_data is not None:
-        folder_bulk_data = shared_folder_bulk_data
+    # Use provided context or create a new one for backward compatibility
+    if context is None:
+        context = ScraperContext()
+
+    # Extract values from context for easier access
+    cache = context.cache
+    new_data = context.new_data
+    folder_bulk_data = context.folder_bulk_data
+    updated_titles_list = context.updated_titles_list
+    fixed_titles_list = context.fixed_titles_list
 
     # Use standard append function
     safe_append = lambda container, item: container.append(item)
@@ -404,9 +402,3 @@ def process_single_media_item(
     media_separator = "=" * 60
     logger.info(f"✅ COMPLETED: {media_name}")
     logger.info(f"{media_separator}\n")
-
-
-# Global variables for backward compatibility
-new_data = defaultdict(dict)
-cache = {}
-folder_bulk_data = {}

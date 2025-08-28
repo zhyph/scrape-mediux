@@ -11,16 +11,18 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from modules.config import yaml_parser
-from modules.base import CachedService
+from modules.base import CachedService, YAMLService, MediuxConfig
 
 logger = logging.getLogger(__name__)
 
 
-class YAMLDataFilter:
+class YAMLDataFilter(CachedService):
     """Handles filtering of YAML data based on path patterns."""
 
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, yaml_service=None, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
 
     def _matches_path_pattern(self, current_path: List[str], pattern: str) -> bool:
         """
@@ -307,11 +309,13 @@ class YAMLStructureProcessor(CachedService):
         return result
 
 
-class DataComparisonEngine:
+class DataComparisonEngine(CachedService):
     """Handles comparison of YAML data and change detection."""
 
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, yaml_service=None, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
 
     def compare_yaml_and_log_changes(
         self,
@@ -390,7 +394,7 @@ class DataComparisonEngine:
             return None
 
         try:
-            parsed_wrapper = yaml_parser.load(raw_yaml_data)
+            parsed_wrapper = self.yaml_service.load_from_string(raw_yaml_data)
             if not parsed_wrapper or not isinstance(parsed_wrapper, dict):
                 self.logger.error(
                     f"Parsed new YAML for '{media_name}' (TMDB: {tmdb_id}) is not a valid dictionary or is empty."
@@ -450,8 +454,12 @@ class DataComparisonEngine:
             return None
 
 
-class SetURLExtractor:
+class SetURLExtractor(CachedService):
     """Extracts set URLs from YAML data."""
+
+    def __init__(self, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
 
     def extract_set_urls(self, yaml_data: str) -> Set[str]:
         """
@@ -466,7 +474,7 @@ class SetURLExtractor:
         set_urls = set()
         lines = yaml_data.split("\n")
         for line in lines:
-            match = re.search(r"#.*(https://mediux.pro/sets/\d+)", line)
+            match = re.search(rf"#.*({MediuxConfig.get_set_url_pattern()})", line)
             if match:
                 set_urls.add(match.group(1))
         return set_urls

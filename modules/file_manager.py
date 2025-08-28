@@ -12,7 +12,7 @@ import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from modules.config import yaml_parser
-from modules.base import CachedService
+from modules.base import CachedService, YAMLService
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,10 @@ class CacheManager:
 class BulkDataManager(CachedService):
     """Manages bulk data file operations."""
 
-    def __init__(self, cache_manager=None):
+    def __init__(self, cache_manager=None, yaml_service=None):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
-        self.yaml = yaml_parser
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
         self.file_cache = {}  # Cache for file modification times and content
 
     def load_bulk_data(
@@ -111,7 +111,7 @@ class BulkDataManager(CachedService):
                     )
                 else:
                     try:
-                        bulk_data = self.yaml.load(file_content)
+                        bulk_data = self.yaml_service.load_from_string(file_content)
                         if (
                             bulk_data
                             and "metadata" in bulk_data
@@ -145,10 +145,10 @@ class BulkDataManager(CachedService):
 class FileWriter(CachedService):
     """Handles writing data to files and managing output directories."""
 
-    def __init__(self, cache_manager=None):
+    def __init__(self, cache_manager=None, yaml_service=None):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
-        self.yaml = yaml_parser
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
 
     def _collect_existing_urls_from_yaml_files(self) -> Set[str]:
         """
@@ -244,7 +244,7 @@ class FileWriter(CachedService):
         file_data = {"metadata": {}}
         if os.path.exists(file_name):
             with open(file_name, "r", encoding="utf-8") as f:
-                loaded_data = self.yaml.load(f)
+                loaded_data = self.yaml_service.load_from_string(f.read())
                 if loaded_data and "metadata" in loaded_data:
                     file_data = loaded_data
                 elif loaded_data:
@@ -255,7 +255,7 @@ class FileWriter(CachedService):
         extractor = SetURLExtractor()
 
         for key, item_yaml_data in data_to_write.items():
-            parsed_item_yaml = self.yaml.load(item_yaml_data)
+            parsed_item_yaml = self.yaml_service.load_from_string(item_yaml_data)
             if parsed_item_yaml:
                 # Merge the parsed YAML content directly into metadata
                 # instead of nesting it under the key
@@ -264,8 +264,10 @@ class FileWriter(CachedService):
             existing_urls_set.update(item_urls)
             total_urls += len(item_urls)
 
-        with open(file_name, "w", encoding="utf-8") as f:
-            self.yaml.dump(file_data, f)
+        yaml_string = self.yaml_service.dump_to_string(file_data)
+        if yaml_string:
+            with open(file_name, "w", encoding="utf-8") as f:
+                f.write(yaml_string)
 
         return file_name, total_urls
 
@@ -303,10 +305,6 @@ class FileWriter(CachedService):
         cache: Dict[str, Tuple[Optional[str], Optional[str]]],
         cache_file: Optional[str],
         output_dir_global: Optional[str],
-        root_folder_global: Optional[Union[str, List[str]]] = None,
-        plex_url: Optional[str] = None,
-        plex_token: Optional[str] = None,
-        plex_libraries: Optional[List[str]] = None,
     ) -> None:
         """
         Write all collected data to files with support for both Plex and folder modes.
@@ -322,12 +320,6 @@ class FileWriter(CachedService):
             plex_libraries: Plex libraries for Plex mode validation
         """
         # Validate Plex configuration if provided
-        if plex_url and plex_token and plex_libraries:
-            logger.info("✅ Plex configuration detected - running in Plex mode")
-        elif not root_folder_global:
-            logger.warning(
-                "⚠️  No valid configuration found (neither Plex nor root folder)"
-            )
         self.logger.info("Writing data to files...")
 
         os.makedirs("./out/kometa", exist_ok=True)

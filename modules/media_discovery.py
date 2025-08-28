@@ -54,7 +54,6 @@ def get_media_ids(
 
     # Final fallback: Use folder scanning if root_folder is available
     if root_folder:
-        logger.info("Fetching media IDs from folder names...")
         from modules.external_services import MediaDiscoveryService
 
         discovery_service = MediaDiscoveryService()
