@@ -3,11 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PUID: ${PUID:-1000}
+        PGID: ${PGID:-1000}
     container_name: scrape-mediux-dev
     environment:
       - TZ=${TZ}
       - LOG_LEVEL=info
       - PYTHONUNBUFFERED=1
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
     volumes:
       - ./:/app
       - ./:/config

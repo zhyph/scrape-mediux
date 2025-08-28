@@ -5,6 +5,8 @@ services:
     environment:
       - TZ=Etc/UTC # Set your timezone
       - LOG_LEVEL=info # Set the log level (debug, info, warning, error)
+      - PUID=1000 # Process user ID - set to match your host user (or optionally use PGID)
+      - PGID=1000 # Process group ID - set to match your host user (or optionally use PUID)
     volumes:
       - /path/to/config:/config # REQUIRED
       - /path/to/config/cache:/app/out # RECOMMENDED, if you don't bind this, the cache will be stored in the container and can easily be lost
