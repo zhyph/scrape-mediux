@@ -7,61 +7,13 @@ and bulk data management for the Mediux scraper.
 
 import logging
 import os
-import pickle
 import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from modules.config import yaml_parser
-from modules.base import CachedService, YAMLService
+from modules.base import CachedService, YAMLService, FileSystemConstants
 
 logger = logging.getLogger(__name__)
-
-
-class CacheManager:
-    """Manages TMDB API cache operations."""
-
-    def __init__(self, cache_file: str = "./out/tmdb_cache.pkl"):
-        self.cache_file = cache_file
-        self.logger = logging.getLogger(__name__)
-
-    def load_cache(self) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
-        """
-        Load cache from file.
-
-        Returns:
-            Cache dictionary or empty dict if file doesn't exist
-        """
-        if os.path.exists(self.cache_file):
-            self.logger.info(f"Loading cache from {self.cache_file}...")
-            with open(self.cache_file, "rb") as f:
-                cache = pickle.load(f)
-            self.logger.info("Cache loaded successfully.")
-            return cache
-        self.logger.info("No cache file found. Initializing new cache.")
-        return {}
-
-    def save_cache(
-        self, updated_cache: Dict[str, Tuple[Optional[str], Optional[str]]]
-    ) -> None:
-        """
-        Save cache to file, merging with existing cache.
-
-        Args:
-            updated_cache: Cache data to save
-        """
-        self.logger.info(f"Saving cache to {self.cache_file}...")
-
-        if os.path.exists(self.cache_file):
-            with open(self.cache_file, "rb") as f:
-                existing_cache = pickle.load(f)
-        else:
-            existing_cache = {}
-
-        existing_cache.update(updated_cache)
-
-        with open(self.cache_file, "wb") as f:
-            pickle.dump(existing_cache, f)
-        self.logger.info("Cache saved successfully.")
 
 
 class BulkDataManager(CachedService):
@@ -89,11 +41,12 @@ class BulkDataManager(CachedService):
         if os.path.exists(bulk_data_file):
             # Check file modification time for cache invalidation
             file_mtime = os.path.getmtime(bulk_data_file)
-            cache_key = f"bulk_data:{bulk_data_file}:{only_set_urls}:{file_mtime}"
 
             # Check cache first
-            cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
-            if cached_result:
+            cached_result = self.cache_manager.get_bulk_yaml_data(
+                bulk_data_file, only_set_urls, file_mtime
+            )
+            if cached_result is not None:
                 self.logger.debug(f"Using cached bulk data for {bulk_data_file}")
                 return cached_result
 
@@ -130,11 +83,15 @@ class BulkDataManager(CachedService):
             if not bulk_data:
                 self.logger.warning("No data found in bulk data file.")
                 empty_result = set() if only_set_urls else {"metadata": {}}
-                self.cache_manager.cache.set("yaml_data", cache_key, empty_result)
+                self.cache_manager.set_bulk_yaml_data(
+                    bulk_data_file, empty_result, only_set_urls, file_mtime
+                )
                 return empty_result
 
             # Cache the result
-            self.cache_manager.cache.set("yaml_data", cache_key, bulk_data)
+            self.cache_manager.set_bulk_yaml_data(
+                bulk_data_file, bulk_data, only_set_urls, file_mtime
+            )
             return bulk_data
 
         self.logger.debug(f"Bulk data file {bulk_data_file} not found.")
@@ -158,7 +115,7 @@ class FileWriter(CachedService):
             Set of existing URLs
         """
         existing_urls = set()
-        kometa_dir = "./out/kometa"
+        kometa_dir = FileSystemConstants.KOMETA_DIR
 
         if not os.path.exists(kometa_dir):
             self.logger.debug("Kometa output directory doesn't exist yet")
@@ -166,7 +123,7 @@ class FileWriter(CachedService):
 
         # Scan all YAML files in the kometa directory
         for filename in os.listdir(kometa_dir):
-            if filename.endswith("_data.yml"):
+            if filename.endswith(FileSystemConstants.DATA_FILE_SUFFIX):
                 file_path = os.path.join(kometa_dir, filename)
                 bulk_manager = BulkDataManager()
                 file_urls = bulk_manager.load_bulk_data(
@@ -199,13 +156,22 @@ class FileWriter(CachedService):
 
         existing_urls = set()
 
-        folder_cache = {root: os.listdir(root) for root in root_folders_list}
+        folder_cache = {}
+        for root in root_folders_list:
+            if os.path.exists(root):
+                folder_cache[root] = os.listdir(root)
+            else:
+                self.logger.warning(f"Root path does not exist: {root}")
+                folder_cache[root] = []
 
         for root, folders_in_root in folder_cache.items():
             for folder_item in folders_in_root:
                 folder_path = os.path.join(root, folder_item)
                 if os.path.isdir(folder_path):
-                    file_path = f"./out/kometa/{folder_item}_data.yml"
+                    file_path = os.path.join(
+                        FileSystemConstants.KOMETA_DIR,
+                        f"{folder_item}{FileSystemConstants.DATA_FILE_SUFFIX}",
+                    )
                     bulk_manager = BulkDataManager()
                     existing_urls.update(
                         bulk_manager.load_bulk_data(
@@ -238,7 +204,10 @@ class FileWriter(CachedService):
             folder_name[0] if isinstance(folder_name, tuple) else folder_name
         )
         safe_folder = re.sub(r"[^\w\-]", "_", name_to_process.lower())
-        file_name = f"./out/kometa/{safe_folder}_data.yml"
+        file_name = os.path.join(
+            FileSystemConstants.KOMETA_DIR,
+            f"{safe_folder}{FileSystemConstants.DATA_FILE_SUFFIX}",
+        )
         total_urls = 0
 
         file_data = {"metadata": {}}
@@ -286,7 +255,7 @@ class FileWriter(CachedService):
             os.makedirs(output_dir_global)
             self.logger.debug(f"Created output directory {output_dir_global}.")
 
-        kometa_out_dir = "./out/kometa"
+        kometa_out_dir = FileSystemConstants.KOMETA_DIR
         if not os.path.exists(kometa_out_dir):
             self.logger.warning(
                 f"Source directory {kometa_out_dir} does not exist. Nothing to copy."
@@ -302,8 +271,6 @@ class FileWriter(CachedService):
     def write_data_to_files(
         self,
         new_data: Dict[str, Dict[str, str]],
-        cache: Dict[str, Tuple[Optional[str], Optional[str]]],
-        cache_file: Optional[str],
         output_dir_global: Optional[str],
     ) -> None:
         """
@@ -322,8 +289,10 @@ class FileWriter(CachedService):
         # Validate Plex configuration if provided
         self.logger.info("Writing data to files...")
 
-        os.makedirs("./out/kometa", exist_ok=True)
-        self.logger.debug("Ensured output directory './out/kometa' exists.")
+        os.makedirs(FileSystemConstants.KOMETA_DIR, exist_ok=True)
+        self.logger.debug(
+            f"Ensured output directory '{FileSystemConstants.KOMETA_DIR}' exists."
+        )
 
         # Collect existing URLs from all YAML files in kometa directory
         existing_urls = self._collect_existing_urls_from_yaml_files()
@@ -347,16 +316,10 @@ class FileWriter(CachedService):
 
         self.logger.info(f"Collected a total of {len(existing_urls)} unique set URLs.")
 
-        with open("./out/ppsh-bulk.txt", "w", encoding="utf-8") as f:
-            for url in sorted(list(existing_urls)):
+        with open(FileSystemConstants.BULK_FILE_PATH, "w", encoding="utf-8") as f:
+            for url in sorted(existing_urls):
                 f.write(url + "\n")
-        self.logger.info("Set URLs updated in './out/ppsh-bulk.txt'.")
-
-        if cache_file:
-            cache_manager = CacheManager(cache_file)
-            cache_manager.save_cache(cache)
-        else:
-            self.logger.info("Cache saving disabled - skipping cache file operations")
+        self.logger.info(f"Set URLs updated in '{FileSystemConstants.BULK_FILE_PATH}'.")
 
         self.logger.info("Data writing completed.")
 

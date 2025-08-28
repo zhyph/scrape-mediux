@@ -66,6 +66,14 @@ class ScraperContext:
         """Clear all folder bulk data."""
         self.folder_bulk_data.clear()
 
+    def set_driver(self, driver) -> None:
+        """Set the WebDriver instance."""
+        self.driver = driver
+
+    def clear_driver(self) -> None:
+        """Clear the WebDriver instance."""
+        self.driver = None
+
     def clear_all(self) -> None:
         """Clear all state data."""
         self.clear_new_data()
@@ -73,7 +81,7 @@ class ScraperContext:
         self.clear_folder_bulk_data()
         self.updated_titles_list.clear()
         self.fixed_titles_list.clear()
-        self.driver = None
+        self.clear_driver()
 
     def get_state_summary(self) -> dict:
         """Get summary of current state for logging."""
@@ -264,7 +272,15 @@ class FileSystemConstants:
 
     # Output directories
     OUTPUT_DIR_DEFAULT = "./out"
+    KOMETA_DIR = "./out/kometa"
     CONFIG_FILE_DEFAULT = "./config.json"
+
+    # File extensions and patterns
+    DATA_FILE_SUFFIX = "_data.yml"
+    BULK_FILE_PATH = "./out/ppsh-bulk.txt"
+
+    # Cache filenames
+    INTELLIGENT_CACHE_FILENAME = "intelligent_cache.pkl"
 
 
 class WebSelectors:
@@ -322,4 +338,48 @@ class BaseService:
     """
 
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__module__)
+
+
+class MediaProcessingConfig:
+    """Configuration class for media processing parameters.
+
+    This class encapsulates all configuration parameters needed for processing
+    individual media items, reducing the number of parameters passed to functions.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        sonarr_api_key: Optional[str] = None,
+        sonarr_endpoint: Optional[str] = None,
+        process_all: bool = False,
+        retry_on_yaml_failure: bool = True,
+        preferred_users: Optional[list] = None,
+        excluded_users: Optional[list] = None,
+        disable_season_fix: bool = False,
+        remove_paths: Optional[list] = None,
+    ):
+        """Initialize media processing configuration.
+
+        Args:
+            api_key: TMDB API key
+            sonarr_api_key: Sonarr API key (optional)
+            sonarr_endpoint: Sonarr endpoint URL (optional)
+            process_all: Whether to process all items regardless of existing YAML
+            retry_on_yaml_failure: Whether to retry on YAML parsing failures
+            preferred_users: List of preferred user names
+            excluded_users: List of excluded user names
+            disable_season_fix: Whether to disable automatic season fix
+            remove_paths: List of YAML paths to remove during filtering
+        """
+        self.api_key = api_key
+        self.sonarr_api_key = sonarr_api_key
+        self.sonarr_endpoint = sonarr_endpoint
+        self.process_all = process_all
+        self.retry_on_yaml_failure = retry_on_yaml_failure
+        self.preferred_users = preferred_users or []
+        self.excluded_users = excluded_users or []
+        self.disable_season_fix = disable_season_fix
+        self.remove_paths = remove_paths or []
         self.logger = logging.getLogger(self.__class__.__module__)

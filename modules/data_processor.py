@@ -152,18 +152,12 @@ class YAMLDataFilter(CachedService):
                     # Check if this is a structural element that should be preserved
                     if path and len(path) >= 2:
                         parent_key = path[-2] if len(path) >= 2 else None
-                        if parent_key == "seasons":
-                            # This is a season entry - preserve it even if empty
-                            return {}
-                        elif (
+                        if parent_key in ("seasons", "episodes") or (
                             path[-1].isdigit()
                             and len(path) >= 3
                             and path[-3] == "seasons"
                         ):
-                            # This is a season number - preserve it even if empty
-                            return {}
-                        elif parent_key == "episodes":
-                            # This is an episode entry - preserve it even if empty
+                            # This is a season/episode entry or season number - preserve it even if empty
                             return {}
 
                     # Check if we're at the top level (media ID level)
@@ -256,17 +250,16 @@ class YAMLStructureProcessor(CachedService):
         """
         # Create cache key based on content hash
         content_hash = hashlib.md5(yaml_string.encode()).hexdigest()
-        cache_key = f"yaml_preprocess:{content_hash}"
 
         # Check cache first
-        cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
-        if cached_result:
+        cached_result = self.cache_manager.get_processed_yaml_data(content_hash)
+        if cached_result is not None:
             self.logger.debug("Using cached YAML preprocessing result")
             return cached_result
 
         if "seasons:" not in yaml_string or "episodes:" not in yaml_string:
             result = (yaml_string, False)
-            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         seasons_match = re.search(
@@ -274,7 +267,7 @@ class YAMLStructureProcessor(CachedService):
         )
         if not seasons_match:
             result = (yaml_string, False)
-            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         seasons_indent = seasons_match.group("indent")
@@ -288,7 +281,7 @@ class YAMLStructureProcessor(CachedService):
 
         if not matches:
             result = (yaml_string, False)
-            self.cache_manager.cache.set("yaml_data", cache_key, result)
+            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         season_count = 1
@@ -305,7 +298,7 @@ class YAMLStructureProcessor(CachedService):
         processed_yaml = regex.sub(season_replacer, yaml_string)
 
         result = (processed_yaml, True)
-        self.cache_manager.cache.set("yaml_data", cache_key, result)
+        self.cache_manager.set_processed_yaml_data(content_hash, processed_yaml, True)
         return result
 
 

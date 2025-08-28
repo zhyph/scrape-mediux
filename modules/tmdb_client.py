@@ -244,7 +244,6 @@ class TMDBClient:
         self,
         media_id: str,
         external_source: str,
-        cache: Dict[str, Tuple[Optional[str], Optional[str]]],
         media_name: Optional[str] = None,
     ) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -253,30 +252,20 @@ class TMDBClient:
         Args:
             media_id: Media ID to look up
             external_source: Type of external source (imdb_id, tvdb_id, tmdb_id)
-            cache: Cache dictionary for storing results (backward compatibility)
             media_name: Optional media name for conflict resolution
 
         Returns:
             Tuple of (tmdb_id, media_type) or (None, None) if not found
         """
-        # Try intelligent cache first
+        # Use intelligent cache
         cache_manager = get_cache_manager()
-        cached_result = cache_manager.get_tmdb_id(
-            media_id, external_source, media_name or ""
-        )
+        cached_result = cache_manager.get_tmdb_id(media_id, external_source)
 
         if cached_result:
             self.logger.info(
                 f"Fetching TMDB ID for {external_source} {media_id} from intelligent cache."
             )
             return cached_result
-
-        # Fallback to legacy cache for backward compatibility
-        if media_id in cache:
-            self.logger.info(
-                f"Fetching TMDB ID for {external_source} {media_id} from legacy cache."
-            )
-            return cache[media_id]
 
         if external_source == "tmdb_id":
             tv_exists, movie_exists, tv_response, movie_response = (
@@ -325,11 +314,9 @@ class TMDBClient:
         if tmdb_id:
             tmdb_id = str(tmdb_id)
 
-        # Store in both intelligent cache and legacy cache for backward compatibility
-        cache_manager = get_cache_manager()
+        # Store in intelligent cache
         if tmdb_id and media_type:
             cache_manager.set_tmdb_id(media_id, external_source, tmdb_id, media_type)
-        cache[media_id] = (tmdb_id, media_type)
 
         self.logger.debug(
             f"TMDB ID for {external_source} {media_id}: {tmdb_id}, Media Type: {media_type}"

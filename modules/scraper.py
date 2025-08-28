@@ -64,7 +64,9 @@ class WebDriverManager:
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--disable-software-rasterizer")
-            options.add_argument(f"--remote-debugging-port={WebAutomationConstants.CHROME_REMOTE_DEBUGGING_PORT}")
+            options.add_argument(
+                f"--remote-debugging-port={WebAutomationConstants.CHROME_REMOTE_DEBUGGING_PORT}"
+            )
 
         if profile_path:
             options.add_argument(f"--user-data-dir={profile_path}")
@@ -146,7 +148,9 @@ class MediuxLoginManager:
 
         try:
             # Check if already logged in
-            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT).until(
+            WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT
+            ).until(
                 EC.presence_of_element_located(
                     (By.XPATH, f"//button[contains(text(), '{nickname}')]")
                 )
@@ -159,7 +163,9 @@ class MediuxLoginManager:
 
         try:
             # Click sign in button
-            login_button = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
+            login_button = WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+            ).until(
                 EC.presence_of_element_located(
                     (By.XPATH, "//button[contains(text(), 'Sign In')]")
                 )
@@ -167,9 +173,9 @@ class MediuxLoginManager:
             login_button.click()
 
             # Wait for login form to load
-            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
-                EC.presence_of_element_located((By.ID, ":r0:-form-item"))
-            )
+            WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+            ).until(EC.presence_of_element_located((By.ID, ":r0:-form-item")))
 
             # Enter credentials
             username_field = driver.find_element(By.ID, ":r0:-form-item")
@@ -182,7 +188,9 @@ class MediuxLoginManager:
             submit_button.click()
 
             # Wait for login confirmation
-            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
+            WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+            ).until(
                 EC.presence_of_element_located(
                     (By.XPATH, f"//button[contains(text(), '{nickname}')]")
                 )
@@ -293,7 +301,9 @@ class MediuxScraper:
                     f"Waiting for update completion for {media_type} {tmdb_id}..."
                 )
 
-                WebDriverWait(driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT).until(
+                WebDriverWait(
+                    driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT
+                ).until(
                     lambda d: (
                         len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
                         or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
@@ -387,9 +397,9 @@ class MediuxScraper:
         yaml_button = None
 
         try:
-            all_yaml_buttons = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM).until(
-                EC.presence_of_all_elements_located((By.XPATH, yaml_xpath))
-            )
+            all_yaml_buttons = WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+            ).until(EC.presence_of_all_elements_located((By.XPATH, yaml_xpath)))
         except TimeoutException:
             self.logger.warning("No YAML buttons found on the page.")
             return None
@@ -499,13 +509,12 @@ class MediuxScraper:
         Returns:
             YAML data as string, empty string if extraction fails
         """
-        # Create cache key based on parameters that affect the result
-        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
 
         # Check cache FIRST to avoid expensive 5-10 second page loads
-        cached_result = self.cache_manager.cache.get("yaml_data", cache_key)
+        cached_result = self.cache_manager.get_scraped_yaml_data(
+            tmdb_id, media_type, preferred_users, excluded_users
+        )
         if cached_result is not None:  # Note: empty string is a valid cached result
-            self.logger.info(f"Using cached YAML data for {media_type} {tmdb_id}")
             return cached_result
 
         self.logger.info(
@@ -546,17 +555,21 @@ class MediuxScraper:
                     f"No suitable YAML button found for TMDB ID {tmdb_id} after filtering."
                 )
                 # Cache negative result to avoid repeated failed lookups
-                self.cache_manager.cache.set("yaml_data", cache_key, "")
+                self.cache_manager.set_scraped_yaml_data(
+                    tmdb_id, media_type, "", preferred_users, excluded_users
+                )
                 return ""
 
             driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
             yaml_button.click()
             self.logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
 
-            yaml_element = WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG).until(
-                EC.presence_of_element_located((By.XPATH, "//code"))
-            )
-            WebDriverWait(driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG).until(
+            yaml_element = WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG
+            ).until(EC.presence_of_element_located((By.XPATH, "//code")))
+            WebDriverWait(
+                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG
+            ).until(
                 lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
             )
             yaml_data = yaml_element.get_attribute("innerText")
@@ -566,20 +579,26 @@ class MediuxScraper:
                     f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
                     "This might indicate an issue with the page or element structure. Returning empty."
                 )
-                self.cache_manager.cache.set("yaml_data", cache_key, "")
+                self.cache_manager.set_scraped_yaml_data(
+                    tmdb_id, media_type, "", preferred_users, excluded_users
+                )
                 return ""
 
             yaml_len = len(yaml_data)
             self.logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
 
             # Cache the successful result
-            self.cache_manager.cache.set("yaml_data", cache_key, yaml_data)
+            self.cache_manager.set_scraped_yaml_data(
+                tmdb_id, media_type, yaml_data, preferred_users, excluded_users
+            )
             return yaml_data
 
         except Exception:
             if not driver.find_elements(By.XPATH, yaml_xpath):
                 self.logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
-                self.cache_manager.cache.set("yaml_data", cache_key, "")
+                self.cache_manager.set_scraped_yaml_data(
+                    tmdb_id, media_type, "", preferred_users, excluded_users
+                )
                 return ""
 
             if retry_on_yaml_failure:
@@ -603,5 +622,7 @@ class MediuxScraper:
                 f"Error scraping TMDB ID {tmdb_id}. This may be normal if no YAML is available."
             )
             # Cache empty result for failed extractions to avoid repeated attempts
-            self.cache_manager.cache.set("yaml_data", cache_key, "")
+            self.cache_manager.set_scraped_yaml_data(
+                tmdb_id, media_type, "", preferred_users, excluded_users
+            )
             return ""

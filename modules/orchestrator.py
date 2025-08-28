@@ -14,8 +14,11 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from urllib3.exceptions import ReadTimeoutError
 
-from modules.cache_config import cache_config
-from modules.base import ScraperContext
+from modules.intelligent_cache import (
+    set_global_cache_manager,
+    create_cache_manager_from_config,
+)
+from modules.base import ScraperContext, FileSystemConstants
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +56,13 @@ def run(
     # Create centralized scraper context
     context = ScraperContext()
 
-    # Update global cache configuration
-    global cache_config
-    from modules.cache_config import CacheConfig
-
-    cache_config = CacheConfig(
-        disable_cache=disable_cache, clear_cache=clear_cache, cache_dir=cache_dir
+    # Configure global cache manager with the unified settings
+    cache_manager = create_cache_manager_from_config(
+        disable_cache=disable_cache,
+        clear_cache=clear_cache,
+        cache_dir=cache_dir,
     )
+    set_global_cache_manager(cache_manager)
 
     start_time = time.time()
     logger.info("🚀 MEDIUX SCRAPER STARTED")
@@ -89,46 +92,47 @@ def run(
             logger.debug(f"Created directory: {dir_path}")
 
     # Handle cache management
-    if cache_config.clear_cache:
+    if cache_manager.clear_cache_on_startup:
         logger.info("🧹 Clearing existing cache files...")
         cache_files = [
-            cache_config.get_cache_file_path("tmdb_cache.pkl"),
-            cache_config.get_cache_file_path("intelligent_cache.pkl"),
+            cache_manager.get_cache_file_path(
+                FileSystemConstants.INTELLIGENT_CACHE_FILENAME
+            ),
         ]
         for cache_file in cache_files:
             if os.path.exists(cache_file):
                 os.remove(cache_file)
                 logger.info(f"✅ Removed cache file: {cache_file}")
 
-    if cache_config.disable_cache:
+    if cache_manager.disable_cache:
         logger.info("🚫 Cache loading and saving disabled - fresh start each time")
-        context.clear_cache()
 
         # Create a dummy intelligent cache manager that does nothing
         class DummyCacheManager:
             def load_cache(self):
+                """Load cache from file. Intentionally empty when caching is disabled."""
                 pass
 
             def save_cache(self):
+                """Save cache to file. Intentionally empty when caching is disabled."""
                 pass
 
             def get_cache_stats(self):
+                """Get cache statistics. Returns empty dict when caching is disabled."""
                 return {}
 
         intelligent_cache_manager = DummyCacheManager()
     else:
-        logger.info("👤 Loading configuration and cache...")
-        from modules.file_manager import CacheManager
-
-        cache_manager = CacheManager()
-        context.cache = cache_manager.load_cache()
+        logger.info("👤 Loading intelligent cache...")
 
         # Load intelligent cache
         from modules.intelligent_cache import get_cache_manager
 
         intelligent_cache_manager = get_cache_manager()
         intelligent_cache_manager.load_cache(
-            cache_config.get_cache_file_path("intelligent_cache.pkl")
+            cache_manager.get_cache_file_path(
+                FileSystemConstants.INTELLIGENT_CACHE_FILENAME
+            )
         )
 
     if root_folder_global:
@@ -184,6 +188,21 @@ def run(
 
     context.clear_new_data()
 
+    # Create media processing configuration
+    from modules.base import MediaProcessingConfig
+
+    config = MediaProcessingConfig(
+        api_key=api_key,
+        sonarr_api_key=sonarr_api_key,
+        sonarr_endpoint=sonarr_endpoint,
+        process_all=process_all,
+        retry_on_yaml_failure=retry_on_yaml_failure,
+        preferred_users=preferred_users,
+        excluded_users=excluded_users,
+        disable_season_fix=disable_season_fix,
+        remove_paths=remove_paths,
+    )
+
     # Phase 3: WebDriver Initialization
     logger.info(f"\n{separator}\n🌐 BROWSER INITIALIZATION\n{separator}")
     logger.info("👤 Starting Chrome WebDriver...")
@@ -208,6 +227,9 @@ def run(
         )
         logger.info("✅ Successfully logged into Mediux")
 
+        # Set driver in context for processing functions
+        context.set_driver(driver)
+
         # Phase 4: Media Processing
         logger.info(f"\n{separator}\n⚙️  MEDIA PROCESSING\n{separator}")
         logger.info(f"👤 Processing {len(media_ids_to_process)} media items...")
@@ -226,18 +248,9 @@ def run(
                         media_id_from_folder=media_id_from_folder,
                         media_name=media_name,
                         external_source_type=external_source_type,
-                        media_type_from_plex=media_type_from_plex,
-                        driver=driver,
-                        api_key=api_key,
-                        sonarr_api_key=sonarr_api_key,
-                        sonarr_endpoint=sonarr_endpoint,
-                        process_all=process_all,
-                        retry_on_yaml_failure=retry_on_yaml_failure,
-                        preferred_users=preferred_users,
-                        excluded_users=excluded_users,
                         folder_map_for_media=folder_map_for_media,
-                        disable_season_fix=disable_season_fix,
-                        remove_paths=remove_paths,
+                        config=config,
+                        media_type_from_plex=media_type_from_plex,
                         context=context,
                     )
                 except (ReadTimeoutError, TimeoutException):
@@ -265,10 +278,12 @@ def run(
         duration = end_time - start_time
 
         # Save intelligent cache if not disabled and it's a real cache manager
-        if not cache_config.disable_cache and "intelligent_cache_manager" in locals():
+        if not cache_manager.disable_cache and "intelligent_cache_manager" in locals():
             logger.info("🧠 Saving intelligent cache...")
             try:
-                filepath = cache_config.get_cache_file_path("intelligent_cache.pkl")
+                filepath = cache_manager.get_cache_file_path(
+                    FileSystemConstants.INTELLIGENT_CACHE_FILENAME
+                )
                 # Check if we have a real cache manager (not a dummy one)
                 if hasattr(intelligent_cache_manager, "cache"):
                     # Use the NamespaceCache save_to_file method directly
@@ -290,12 +305,6 @@ def run(
         file_writer = FileWriter()
         file_writer.write_data_to_files(
             new_data=context.new_data,
-            cache=context.cache if cache_config.should_save_cache() else {},
-            cache_file=(
-                cache_config.get_cache_file_path("tmdb_cache.pkl")
-                if cache_config.should_save_cache()
-                else None
-            ),
             output_dir_global=output_dir_global,
         )
 
@@ -349,7 +358,9 @@ def run(
                             logger.info(
                                 f"      • {namespace}: {hit_rate:.1f}% hit rate ({stats.get('hits', 0)} hits, {stats.get('misses', 0)} misses)"
                             )
-                    logger.info("   • Cache file: ./out/intelligent_cache.pkl")
+                    logger.info(
+                        f"   • Cache file: {cache_manager.get_cache_file_path(FileSystemConstants.INTELLIGENT_CACHE_FILENAME)}"
+                    )
             except Exception as e:
                 logger.debug(f"Could not retrieve cache stats: {e}")
 

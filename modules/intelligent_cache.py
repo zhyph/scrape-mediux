@@ -12,7 +12,7 @@ import pickle
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class IntelligentCache:
         max_size: int = 1000,
         default_ttl: int = 3600,
         max_memory_mb: float = 50.0,
-        memory_check_interval: int = 100
+        memory_check_interval: int = 100,
     ):
         """
         Initialize intelligent cache.
@@ -116,7 +116,7 @@ class IntelligentCache:
                 # Add new entry
                 if len(self.cache) >= self.max_size:
                     # Remove oldest entry (LRU)
-                    oldest_key, oldest_entry = self.cache.popitem(last=False)
+                    oldest_key = self.cache.popitem(last=False)
                     self.stats["evictions"] += 1
                     logger.debug(f"Cache eviction: {oldest_key}")
 
@@ -192,7 +192,6 @@ class IntelligentCache:
             # If still over memory limit, remove least recently used items
             target_size = int(self.max_size * 0.7)  # Reduce to 70% of max size
             while len(self.cache) > target_size:
-                oldest_key, oldest_entry = self.cache.popitem(last=False)
                 self.stats["evictions"] += 1
 
             self.stats["size"] = len(self.cache)
@@ -226,7 +225,7 @@ class NamespaceCache:
         default_ttl: int = 3600,
         max_memory_mb: float = 50.0,
         memory_check_interval: int = 100,
-        namespace_configs: Optional[Dict[str, Dict]] = None
+        namespace_configs: Optional[Dict[str, Dict]] = None,
     ):
         """
         Initialize namespace cache.
@@ -249,7 +248,9 @@ class NamespaceCache:
         self.memory_check_interval = memory_check_interval
 
         # Namespace-specific configurations
-        self.namespace_configs = namespace_configs or self._get_default_namespace_configs()
+        self.namespace_configs = (
+            namespace_configs or self._get_default_namespace_configs()
+        )
 
     def _get_default_namespace_configs(self) -> Dict[str, Dict]:
         """Get default namespace configurations."""
@@ -257,32 +258,50 @@ class NamespaceCache:
             "tmdb_api": {
                 "max_size": 5000,
                 "default_ttl": None,  # permanent - TMDB IDs are inherently stable
-                "description": "TMDB API responses - permanent cache for stable IDs"
+                "description": "TMDB API responses - permanent cache for stable IDs",
             },
             "sonarr_api": {
                 "max_size": 2000,
                 "default_ttl": 43200,  # 12 hours - series status changes are moderate
-                "description": "Sonarr API responses - moderate change frequency"
+                "description": "Sonarr API responses - moderate change frequency",
+            },
+            "scraped_yaml": {
+                "max_size": 3000,
+                "default_ttl": 21600,  # 6 hours - scraped data needs periodic refresh
+                "description": "Scraped YAML data from Mediux website",
+            },
+            "bulk_yaml": {
+                "max_size": 1000,
+                "default_ttl": 3600,  # 1 hour - bulk data files change less frequently
+                "description": "Bulk YAML data loaded from files",
+            },
+            "processed_yaml": {
+                "max_size": 2000,
+                "default_ttl": 21600,  # 6 hours - processed data needs periodic refresh
+                "description": "Processed/fixed YAML data",
             },
             "yaml_data": {
                 "max_size": 3000,
-                "default_ttl": 21600,  # 6 hours - processed YAML needs periodic refresh
-                "description": "Processed YAML data - periodic refresh needed"
+                "default_ttl": 21600,  # 6 hours - legacy namespace, kept for backward compatibility
+                "description": "Legacy YAML data namespace - kept for backward compatibility",
             },
             "media_ids": {
                 "max_size": 10000,
                 "default_ttl": None,  # permanent - folder structure IDs are stable
-                "description": "Media folder IDs - stable folder structure"
-            }
+                "description": "Media folder IDs - stable folder structure",
+            },
         }
 
     def get_namespace_config(self, namespace: str) -> Dict:
         """Get configuration for a specific namespace."""
-        return self.namespace_configs.get(namespace, {
-            "max_size": self.default_max_size,
-            "default_ttl": self.default_ttl,
-            "description": f"Default configuration for {namespace}"
-        })
+        return self.namespace_configs.get(
+            namespace,
+            {
+                "max_size": self.default_max_size,
+                "default_ttl": self.default_ttl,
+                "description": f"Default configuration for {namespace}",
+            },
+        )
 
     def get_namespace(self, name: str) -> IntelligentCache:
         """Get or create a cache namespace."""
@@ -293,7 +312,7 @@ class NamespaceCache:
                     max_size=config["max_size"],
                     default_ttl=config["default_ttl"],
                     max_memory_mb=self.max_memory_mb,
-                    memory_check_interval=self.memory_check_interval
+                    memory_check_interval=self.memory_check_interval,
                 )
             return self.namespaces[name]
 
@@ -475,7 +494,11 @@ class CacheManager:
         default_ttl: int = 3600,
         max_memory_mb: float = 50.0,
         memory_check_interval: int = 100,
-        namespace_configs: Optional[Dict[str, Dict]] = None
+        namespace_configs: Optional[Dict[str, Dict]] = None,
+        # Cache configuration settings
+        disable_cache: bool = False,
+        clear_cache: bool = False,
+        cache_dir: str = "./out",
     ):
         """
         Initialize cache manager.
@@ -486,18 +509,26 @@ class CacheManager:
             max_memory_mb: Maximum memory usage in MB before triggering cleanup
             memory_check_interval: Check memory usage every N operations
             namespace_configs: Custom configuration for specific namespaces
+            disable_cache: Whether to disable cache loading and saving
+            clear_cache: Whether to clear existing cache files
+            cache_dir: Directory to store cache files
         """
         self.cache = NamespaceCache(
             default_max_size=default_max_size,
             default_ttl=default_ttl,
             max_memory_mb=max_memory_mb,
             memory_check_interval=memory_check_interval,
-            namespace_configs=namespace_configs
+            namespace_configs=namespace_configs,
         )
         self.logger = logging.getLogger(__name__)
 
+        # Cache configuration settings
+        self.disable_cache = disable_cache
+        self.clear_cache_on_startup = clear_cache
+        self.cache_dir = cache_dir
+
     def get_tmdb_id(
-        self, media_id: str, external_source: str, media_name: str = ""
+        self, media_id: str, external_source: str
     ) -> Optional[Tuple[str, str]]:
         """Get TMDB ID with intelligent caching."""
         cache_key = f"{external_source}:{media_id}"
@@ -544,23 +575,81 @@ class CacheManager:
         self.cache.set("sonarr_api", cache_key, (tvdb_id, ended))
         self.logger.debug(f"Cached Sonarr status: {media_name} -> {tvdb_id}, {ended}")
 
-    def get_yaml_data(self, media_id: str, filters: str = "") -> Optional[str]:
-        """Get processed YAML data with caching."""
-        cache_key = f"{media_id}:{filters}"
-        result = self.cache.get("yaml_data", cache_key)
+    def get_scraped_yaml_data(
+        self,
+        tmdb_id: str,
+        media_type: str,
+        preferred_users: Optional[List[str]] = None,
+        excluded_users: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """Get scraped YAML data from Mediux website with caching."""
+        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
+        result = self.cache.get("scraped_yaml", cache_key)
 
         if result is not None:
-            self.logger.debug(f"YAML cache hit for {media_id}")
+            self.logger.info(
+                f"Using cached scraped YAML data for {media_type} {tmdb_id}"
+            )
             return result
         else:
-            self.logger.debug(f"YAML cache miss for {media_id}")
             return None
 
-    def set_yaml_data(self, media_id: str, yaml_data: str, filters: str = ""):
+    def set_scraped_yaml_data(
+        self,
+        tmdb_id: str,
+        media_type: str,
+        yaml_data: str,
+        preferred_users: Optional[List[str]] = None,
+        excluded_users: Optional[List[str]] = None,
+    ):
+        """Set scraped YAML data from Mediux website in cache."""
+        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
+        self.cache.set("scraped_yaml", cache_key, yaml_data)
+        self.logger.debug(f"Cached scraped YAML data for {media_type} {tmdb_id}")
+
+    def get_bulk_yaml_data(
+        self, file_path: str, only_set_urls: bool = False, file_mtime: float = 0.0
+    ) -> Optional[Any]:
+        """Get bulk YAML data file with caching."""
+        cache_key = f"bulk_data:{file_path}:{only_set_urls}:{file_mtime}"
+        result = self.cache.get("bulk_yaml", cache_key)
+
+        if result is not None:
+            self.logger.debug(f"Using cached bulk YAML data for {file_path}")
+            return result
+        else:
+            return None
+
+    def set_bulk_yaml_data(
+        self,
+        file_path: str,
+        yaml_data: Any,
+        only_set_urls: bool = False,
+        file_mtime: float = 0.0,
+    ):
+        """Set bulk YAML data file in cache."""
+        cache_key = f"bulk_data:{file_path}:{only_set_urls}:{file_mtime}"
+        self.cache.set("bulk_yaml", cache_key, yaml_data)
+        self.logger.debug(f"Cached bulk YAML data for {file_path}")
+
+    def get_processed_yaml_data(self, content_hash: str) -> Optional[Tuple[str, bool]]:
+        """Get processed YAML data with caching."""
+        cache_key = f"yaml_preprocess:{content_hash}"
+        result = self.cache.get("processed_yaml", cache_key)
+
+        if result is not None:
+            self.logger.debug("Using cached YAML preprocessing result")
+            return result
+        else:
+            return None
+
+    def set_processed_yaml_data(
+        self, content_hash: str, yaml_data: str, was_fixed: bool = False
+    ):
         """Set processed YAML data in cache."""
-        cache_key = f"{media_id}:{filters}"
-        self.cache.set("yaml_data", cache_key, yaml_data)
-        self.logger.debug(f"Cached YAML data for {media_id}")
+        cache_key = f"yaml_preprocess:{content_hash}"
+        self.cache.set("processed_yaml", cache_key, (yaml_data, was_fixed))
+        self.logger.debug("Cached YAML preprocessing result")
 
     def get_media_ids(
         self, folder_path: str, selected_folders: Optional[list] = None
@@ -610,6 +699,22 @@ class CacheManager:
         """Load intelligent cache from file."""
         self.cache.load_from_file(filepath)
 
+    def get_cache_file_path(self, filename: str) -> str:
+        """Get full path for cache file."""
+        return os.path.join(self.cache_dir, filename)
+
+    def should_load_cache(self) -> bool:
+        """Determine if cache should be loaded."""
+        return not self.disable_cache
+
+    def should_save_cache(self) -> bool:
+        """Determine if cache should be saved."""
+        return not self.disable_cache
+
+    def get_namespace_config(self, namespace: str) -> Dict:
+        """Get configuration for a specific namespace."""
+        return self.cache.get_namespace_config(namespace)
+
     def refresh_permanent_entries(self, namespace: str):
         """Force refresh of permanent cache entries by clearing them.
 
@@ -649,12 +754,21 @@ def get_cache_manager() -> CacheManager:
     return _global_cache_manager
 
 
+def set_global_cache_manager(cache_manager: CacheManager) -> None:
+    """Set the global cache manager instance."""
+    global _global_cache_manager
+    _global_cache_manager = cache_manager
+
+
 def create_cache_manager_from_config(
     max_cache_size: int = 1000,
     default_cache_ttl: int = 3600,
     max_cache_memory_mb: float = 50.0,
     memory_check_interval: int = 100,
-    namespace_configs: Optional[Dict[str, Dict]] = None
+    namespace_configs: Optional[Dict[str, Dict]] = None,
+    disable_cache: bool = False,
+    clear_cache: bool = False,
+    cache_dir: str = "./out",
 ) -> CacheManager:
     """
     Create a new CacheManager instance with specific configuration.
@@ -669,6 +783,9 @@ def create_cache_manager_from_config(
         max_cache_memory_mb: Maximum memory usage in MB before triggering cleanup
         memory_check_interval: Check memory usage every N operations
         namespace_configs: Custom configuration for specific namespaces
+        disable_cache: Whether to disable cache loading and saving
+        clear_cache: Whether to clear existing cache files
+        cache_dir: Directory to store cache files
 
     Returns:
         Configured CacheManager instance
@@ -678,5 +795,8 @@ def create_cache_manager_from_config(
         default_ttl=default_cache_ttl,
         max_memory_mb=max_cache_memory_mb,
         memory_check_interval=memory_check_interval,
-        namespace_configs=namespace_configs
+        namespace_configs=namespace_configs,
+        disable_cache=disable_cache,
+        clear_cache=clear_cache,
+        cache_dir=cache_dir,
     )

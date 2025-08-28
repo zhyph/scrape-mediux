@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Union
 
 from ruamel import yaml
 
-from .cache_config import CacheConfig
+from .intelligent_cache import CacheManager
 
 from .base import FileSystemConstants
 
@@ -631,24 +631,26 @@ class ConfigManager:
 
         return app_config
 
-    def create_cache_config(self, app_config: Dict[str, Any]) -> CacheConfig:
+    def create_cache_manager(self, app_config: Dict[str, Any]) -> CacheManager:
         """
-        Create a CacheConfig instance from the application configuration.
+        Create a CacheManager instance from the application configuration.
 
         Args:
             app_config: Application configuration dictionary
 
         Returns:
-            CacheConfig instance with configured settings
+            CacheManager instance with configured settings
         """
-        return CacheConfig(
-            disable_cache=app_config.get("disable_cache", False),
-            clear_cache=app_config.get("clear_cache", False),
-            cache_dir=app_config.get("cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT),
-            max_cache_size=app_config.get("max_cache_size", 1000),
+        return CacheManager(
+            default_max_size=app_config.get("max_cache_size", 1000),
             default_ttl=app_config.get("default_cache_ttl", 3600),
             max_memory_mb=app_config.get("max_cache_memory_mb", 50.0),
             memory_check_interval=app_config.get("memory_check_interval", 100),
+            disable_cache=app_config.get("disable_cache", False),
+            clear_cache=app_config.get("clear_cache", False),
+            cache_dir=app_config.get(
+                "cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT
+            ),
         )
 
 
