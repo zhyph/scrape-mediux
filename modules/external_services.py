@@ -12,8 +12,8 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_fixed
 
+from modules.http_client import get_global_session
 from modules.intelligent_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,8 @@ class DiscordNotifier:
         self.logger.info(f"Sending notification to Discord: {message[:100]}...")
         payload = {"content": message}
         try:
-            response = requests.post(webhook_url, json=payload, timeout=10)
+            session = get_global_session()
+            response = session.post(webhook_url, json=payload, timeout=10)
             response.raise_for_status()
             self.logger.info("Discord notification sent successfully.")
         except requests.exceptions.RequestException as e:
@@ -67,7 +68,6 @@ class SonarrClient:
         }
         self.logger = logging.getLogger(__name__)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def check_series_status(
         self, media_name: str, tmdb_id: Optional[str] = None
     ) -> Tuple[Optional[str], Optional[bool]]:
@@ -91,7 +91,8 @@ class SonarrClient:
             return cached_result
 
         url = f"{self.endpoint}/api/v3/series/lookup?term={media_name}"
-        response = requests.get(url, headers=self.headers)
+        session = get_global_session()
+        response = session.get(url, headers=self.headers)
         response.raise_for_status()
         data = response.json()
 
@@ -199,9 +200,8 @@ class PlexClient:
                     guids = {
                         guid.id.split("://")[0]
                         .replace("themoviedb", "tmdb")
-                        .replace("thetvdb", "tvdb"): guid.id.split("://")[1].split("?")[
-                            0
-                        ]
+                        .replace("thetvdb", "tvdb"): guid.id.split("://")[1]
+                        .split("?")[0]
                         for guid in item.guids
                     }
 

@@ -11,8 +11,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_fixed
 
+from modules.http_client import get_global_session
 from modules.intelligent_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
@@ -85,13 +85,14 @@ class TMDBClient:
         movie_url = f"{self.BASE_URL}/movie/{media_id}"
         tv_response = movie_response = None
 
+        session = get_global_session()
         try:
-            tv_response = requests.get(tv_url, headers=self.headers)
+            tv_response = session.get(tv_url, headers=self.headers)
         except Exception as e:
             self.logger.debug(f"Error checking TV endpoint for TMDB ID {media_id}: {e}")
 
         try:
-            movie_response = requests.get(movie_url, headers=self.headers)
+            movie_response = session.get(movie_url, headers=self.headers)
         except Exception as e:
             self.logger.debug(
                 f"Error checking movie endpoint for TMDB ID {media_id}: {e}"
@@ -169,7 +170,8 @@ class TMDBClient:
         )
         url = f"{self.BASE_URL}/find/{media_id}?external_source={external_source}"
 
-        response = requests.get(url, headers=self.headers)
+        session = get_global_session()
+        response = session.get(url, headers=self.headers)
         response.raise_for_status()
         data = response.json()
 
@@ -239,7 +241,6 @@ class TMDBClient:
                 self.logger.info(".2f")
                 return movie_result["id"], "movie"
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
     def fetch_tmdb_id(
         self,
         media_id: str,

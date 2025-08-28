@@ -72,6 +72,8 @@ class ConfigManager:
                     "nickname",
                     "sonarr_endpoint",
                     "discord_webhook_url",
+                    "plex_token",
+                    "plex_url"
                 ]
                 else v
             )
