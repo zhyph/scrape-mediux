@@ -35,54 +35,8 @@ def schedule_run(*, cron_expression, args_dict):
                 from modules.orchestrator import run
 
                 run(**args_dict)
-                write_data_to_files()
             except Exception as e:
                 logger.error(f"Error during scheduled run: {e}")
             next_run_time = cron_iter.get_next(datetime)
             logger.info(f"Next scheduled run at: {next_run_time}")
         sleep(60)
-
-
-def write_data_to_files():
-    """Write collected data to files."""
-    # Import globals and functions here to avoid circular imports
-    from modules.file_manager import FileWriter
-    from modules.orchestrator import (
-        cache,
-        cache_config,
-        new_data,
-        output_dir_global,
-        root_folder_global,
-    )
-
-    if not root_folder_global:
-        logger.error("Root folder is not set. Cannot write data.")
-        return
-
-    from modules.config import validate_path
-
-    validate_path(path=root_folder_global, description="Root folder")
-    logger.info("Writing data to files...")
-
-    file_writer = FileWriter()
-
-    # Save intelligent cache if not disabled
-    if cache_config.should_save_cache():
-        from modules.intelligent_cache import get_cache_manager
-
-        intelligent_cache_manager = get_cache_manager()
-        intelligent_cache_manager.save_cache(
-            cache_config.get_cache_file_path("intelligent_cache.pkl")
-        )
-
-    file_writer.write_data_to_files(
-        new_data=new_data,
-        root_folder_global=root_folder_global,
-        cache=cache if cache_config.should_save_cache() else {},
-        cache_file=(
-            cache_config.get_cache_file_path("tmdb_cache.pkl")
-            if cache_config.should_save_cache()
-            else None
-        ),
-        output_dir_global=output_dir_global,
-    )

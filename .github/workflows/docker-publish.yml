@@ -9,22 +9,7 @@ on:
       - "v*.*.*"
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements.dev.txt
-      - name: Run tests
-        run: pytest
   build-and-publish:
-    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

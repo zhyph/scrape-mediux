@@ -12,7 +12,7 @@ import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from modules.config import yaml_parser
-from modules.intelligent_cache import get_cache_manager
+from modules.base import CachedService
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +64,13 @@ class CacheManager:
         self.logger.info("Cache saved successfully.")
 
 
-class BulkDataManager:
+class BulkDataManager(CachedService):
     """Manages bulk data file operations."""
 
-    def __init__(self):
+    def __init__(self, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
         self.yaml = yaml_parser
-        self.logger = logging.getLogger(__name__)
-        self.cache_manager = get_cache_manager()
         self.file_cache = {}  # Cache for file modification times and content
 
     def load_bulk_data(
@@ -142,13 +142,13 @@ class BulkDataManager:
         return empty_result
 
 
-class FileWriter:
+class FileWriter(CachedService):
     """Handles writing data to files and managing output directories."""
 
-    def __init__(self):
+    def __init__(self, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
         self.yaml = yaml_parser
-        self.logger = logging.getLogger(__name__)
-        self.cache_manager = get_cache_manager()
 
     def _collect_existing_urls_from_yaml_files(self) -> Set[str]:
         """
@@ -303,16 +303,31 @@ class FileWriter:
         cache: Dict[str, Tuple[Optional[str], Optional[str]]],
         cache_file: Optional[str],
         output_dir_global: Optional[str],
+        root_folder_global: Optional[Union[str, List[str]]] = None,
+        plex_url: Optional[str] = None,
+        plex_token: Optional[str] = None,
+        plex_libraries: Optional[List[str]] = None,
     ) -> None:
         """
-        Write all collected data to files.
+        Write all collected data to files with support for both Plex and folder modes.
 
         Args:
             new_data: New data to write
             cache: Cache to save
             cache_file: Cache file path
             output_dir_global: Output directory for copying files
+            root_folder_global: Root folder(s) for folder-based mode (deprecated for Plex mode)
+            plex_url: Plex server URL for Plex mode validation
+            plex_token: Plex token for Plex mode validation
+            plex_libraries: Plex libraries for Plex mode validation
         """
+        # Validate Plex configuration if provided
+        if plex_url and plex_token and plex_libraries:
+            logger.info("✅ Plex configuration detected - running in Plex mode")
+        elif not root_folder_global:
+            logger.warning(
+                "⚠️  No valid configuration found (neither Plex nor root folder)"
+            )
         self.logger.info("Writing data to files...")
 
         os.makedirs("./out/kometa", exist_ok=True)

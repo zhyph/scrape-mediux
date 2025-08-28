@@ -268,10 +268,40 @@ def run(
         end_time = time.time()
         duration = end_time - start_time
 
+        # Save intelligent cache if not disabled and it's a real cache manager
+        if not cache_config.disable_cache and "intelligent_cache_manager" in locals():
+            logger.info("🧠 Saving intelligent cache...")
+            try:
+                filepath = cache_config.get_cache_file_path("intelligent_cache.pkl")
+                # Check if we have a real cache manager (not a dummy one)
+                if hasattr(intelligent_cache_manager, "cache"):
+                    # Use the NamespaceCache save_to_file method directly
+                    getattr(intelligent_cache_manager, "cache").save_to_file(filepath)
+                else:
+                    logger.debug(
+                        "Dummy cache manager detected - skipping intelligent cache save"
+                    )
+                logger.info("✅ Intelligent cache saved successfully.")
+            except Exception as e:
+                logger.error(f"❌ Failed to save intelligent cache: {e}")
+
         # Write data to files before shutting down
         logger.info("👤 Saving data to files...")
-        write_data_to_files(
-            root_folder_path=root_folder_global, output_dir=output_dir_global
+
+        # Use unified FileWriter implementation
+        from modules.file_manager import FileWriter
+
+        file_writer = FileWriter()
+        file_writer.write_data_to_files(
+            new_data=new_data,
+            cache=cache if cache_config.should_save_cache() else {},
+            cache_file=(
+                cache_config.get_cache_file_path("tmdb_cache.pkl")
+                if cache_config.should_save_cache()
+                else None
+            ),
+            output_dir_global=output_dir_global,
+            root_folder_global=root_folder_global,
         )
 
         logger.info("👤 Shutting down...")
@@ -365,36 +395,6 @@ def run(
             )
 
         logger.info("🎉 Mediux scraper completed successfully!")
-
-
-def write_data_to_files(root_folder_path=None, output_dir=None):
-    """Write collected data to files."""
-    # Import globals and functions here to avoid circular imports
-    from modules.file_manager import FileWriter
-
-    logger.info("Writing data to files...")
-
-    file_writer = FileWriter()
-
-    # Save intelligent cache if not disabled
-    if cache_config.should_save_cache():
-        from modules.intelligent_cache import get_cache_manager
-
-        intelligent_cache_manager = get_cache_manager()
-        intelligent_cache_manager.save_cache(
-            cache_config.get_cache_file_path("intelligent_cache.pkl")
-        )
-
-    file_writer.write_data_to_files(
-        new_data=new_data,
-        cache=cache if cache_config.should_save_cache() else {},
-        cache_file=(
-            cache_config.get_cache_file_path("tmdb_cache.pkl")
-            if cache_config.should_save_cache()
-            else None
-        ),
-        output_dir_global=output_dir,
-    )
 
 
 # Global variables for backward compatibility

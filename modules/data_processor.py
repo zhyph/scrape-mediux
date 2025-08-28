@@ -10,9 +10,8 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from ruamel.yaml import YAML
-
-from modules.intelligent_cache import get_cache_manager
+from modules.config import yaml_parser
+from modules.base import CachedService
 
 logger = logging.getLogger(__name__)
 
@@ -232,12 +231,12 @@ class YAMLDataFilter:
         return filtered_data if filtered_data else yaml_data
 
 
-class YAMLStructureProcessor:
+class YAMLStructureProcessor(CachedService):
     """Handles YAML structure preprocessing and fixes."""
 
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        self.cache_manager = get_cache_manager()
+    def __init__(self, cache_manager=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
 
     def preprocess_yaml_string(self, yaml_string: str) -> Tuple[str, bool]:
         """
@@ -371,7 +370,6 @@ class DataComparisonEngine:
         media_type: str,
         tmdb_id: str,
         tvdb_id_for_tv: Optional[str],
-        yaml_parser: YAML,
         remove_paths: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
@@ -383,7 +381,6 @@ class DataComparisonEngine:
             media_type: Type of media
             tmdb_id: TMDB ID
             tvdb_id_for_tv: TVDB ID (for TV shows)
-            yaml_parser: YAML parser instance
             remove_paths: Paths to remove during filtering
 
         Returns:

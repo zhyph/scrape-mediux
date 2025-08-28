@@ -311,7 +311,6 @@ def process_single_media_item(
                             media_type=media_type,
                             tmdb_id=tmdb_id,
                             tvdb_id_for_tv=tvdb_id_for_tv,
-                            yaml_parser=yaml_parser,
                             remove_paths=None,
                         )
                 else:
@@ -326,7 +325,6 @@ def process_single_media_item(
                             media_type=media_type,
                             tmdb_id=tmdb_id,
                             tvdb_id_for_tv=tvdb_id_for_tv,
-                            yaml_parser=yaml_parser,
                             remove_paths=None,
                         )
                     )
@@ -338,7 +336,6 @@ def process_single_media_item(
                         media_type=media_type,
                         tmdb_id=tmdb_id,
                         tvdb_id_for_tv=tvdb_id_for_tv,
-                        yaml_parser=yaml_parser,
                         remove_paths=None,
                     )
                 )
@@ -354,7 +351,6 @@ def process_single_media_item(
                     media_type=media_type,
                     tmdb_id=tmdb_id,
                     tvdb_id_for_tv=tvdb_id_for_tv,
-                    yaml_parser=yaml_parser,
                     remove_paths=None,
                 )
             )
@@ -366,7 +362,6 @@ def process_single_media_item(
                 media_type=media_type,
                 tmdb_id=tmdb_id,
                 tvdb_id_for_tv=tvdb_id_for_tv,
-                yaml_parser=yaml_parser,
                 remove_paths=None,
             )
         )
