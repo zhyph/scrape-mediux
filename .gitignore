@@ -5,6 +5,7 @@ profile
 *.log
 main.py.backup
 output/**/*
+.sonar
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

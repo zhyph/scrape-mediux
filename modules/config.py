@@ -15,6 +15,8 @@ from ruamel import yaml
 
 from .cache_config import CacheConfig
 
+from .base import FileSystemConstants
+
 logger = logging.getLogger(__name__)
 
 
@@ -352,7 +354,7 @@ class ConfigManager:
         parser.add_argument(
             "--cache_dir",
             type=str,
-            default="./out",
+            default=FileSystemConstants.OUTPUT_DIR_DEFAULT,
             help="Directory to store cache files (default: ./out)",
         )
 
@@ -595,7 +597,7 @@ class ConfigManager:
                 env_var_name="CACHE_DIR",
                 config_key="cache_dir",
                 file_config=file_config,
-                default_val="./out",
+                default_val=FileSystemConstants.OUTPUT_DIR_DEFAULT,
             ),
             "max_cache_size": self._resolve_config_value(
                 arg_val=args.max_cache_size,
@@ -642,7 +644,7 @@ class ConfigManager:
         return CacheConfig(
             disable_cache=app_config.get("disable_cache", False),
             clear_cache=app_config.get("clear_cache", False),
-            cache_dir=app_config.get("cache_dir", "./out"),
+            cache_dir=app_config.get("cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT),
             max_cache_size=app_config.get("max_cache_size", 1000),
             default_ttl=app_config.get("default_cache_ttl", 3600),
             max_memory_mb=app_config.get("max_cache_memory_mb", 50.0),

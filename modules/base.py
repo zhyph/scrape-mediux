@@ -256,6 +256,17 @@ class MediuxConfig:
     SHOW_UPDATE_SUCCESS = "Show updated successfully"
 
 
+class FileSystemConstants:
+    """File system related constants and default paths.
+
+    Centralizes common file system paths and directories used across the project.
+    """
+
+    # Output directories
+    OUTPUT_DIR_DEFAULT = "./out"
+    CONFIG_FILE_DEFAULT = "./config.json"
+
+
 class WebSelectors:
     """Centralized XPath and CSS selectors for web elements.
 
