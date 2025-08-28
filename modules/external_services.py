@@ -88,7 +88,6 @@ class SonarrClient:
         cached_result = cache_manager.get_sonarr_status(media_name, tmdb_id)
 
         if cached_result:
-            self.logger.info(f"Sonarr cache hit for {media_name}")
             return cached_result
 
         url = f"{self.endpoint}/api/v3/series/lookup?term={media_name}"
