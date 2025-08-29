@@ -166,16 +166,6 @@ class PlexClient:
         """
         self.logger.info("Fetching media IDs from Plex API...")
 
-        # Try intelligent cache first
-        cache_manager = get_cache_manager()
-        cache_key = f"plex:{':'.join(sorted(libraries))}"
-
-        cached_result = cache_manager.cache.get("media_ids", cache_key)
-        if cached_result:
-            self.logger.info("Plex media IDs cache hit")
-            return cached_result
-
-        # Cache miss - perform the API calls
         try:
             from plexapi.server import PlexServer
         except ImportError:
@@ -233,8 +223,6 @@ class PlexClient:
         self.logger.info(f"Found {len(media_ids)} media IDs from Plex.")
         result = (media_ids, folder_map)
 
-        # Cache the result for future use
-        cache_manager.cache.set("media_ids", cache_key, result)
         return result
 
     def list_available_libraries(self) -> List[str]:
@@ -285,17 +273,6 @@ class MediaDiscoveryService:
         """
         self.logger.info("Fetching media IDs from folder names...")
 
-        # Try intelligent cache first
-        cache_manager = get_cache_manager()
-        cache_key = self._generate_folder_cache_key(root_folder, selected_folders)
-
-        cached_result = cache_manager.cache.get("media_ids", cache_key)
-        if cached_result:
-            self.logger.info("Media IDs cache hit for folder scan")
-            return cached_result
-
-        # Cache miss - perform the scan
-
         import os
 
         from modules.config import validate_path
@@ -327,8 +304,6 @@ class MediaDiscoveryService:
         self.logger.info(f"Found media IDs: {media_ids}")
         result = (media_ids, folder_map)
 
-        # Cache the result for future use
-        cache_manager.cache.set("media_ids", cache_key, result)
         return result
 
     def _generate_folder_cache_key(

@@ -653,28 +653,6 @@ class CacheManager:
         self.cache.set("processed_yaml", cache_key, (yaml_data, was_fixed))
         self.logger.debug("Cached YAML preprocessing result")
 
-    def get_media_ids(
-        self, folder_path: str, selected_folders: Optional[list] = None
-    ) -> Optional[list]:
-        """Get media IDs from folder with caching."""
-        cache_key = f"{folder_path}:{selected_folders or []}"
-        result = self.cache.get("media_ids", cache_key)
-
-        if result is not None:
-            self.logger.debug(f"Media IDs cache hit for {folder_path}")
-            return result
-        else:
-            self.logger.debug(f"Media IDs cache miss for {folder_path}")
-            return None
-
-    def set_media_ids(
-        self, folder_path: str, media_ids: list, selected_folders: Optional[list] = None
-    ):
-        """Set media IDs in cache."""
-        cache_key = f"{folder_path}:{selected_folders or []}"
-        self.cache.set("media_ids", cache_key, media_ids)
-        self.logger.debug(f"Cached media IDs for {folder_path}: {len(media_ids)} items")
-
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics."""
         return self.cache.get_all_stats()
