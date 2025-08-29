@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import requests
 
+from modules.base import WebAutomationConstants
 from modules.http_client import get_global_session
 from modules.intelligent_cache import get_cache_manager
 
@@ -49,7 +50,11 @@ class DiscordNotifier:
         payload = {"content": message}
         try:
             session = get_global_session()
-            response = session.post(webhook_url, json=payload, timeout=10)
+            response = session.post(
+                webhook_url,
+                json=payload,
+                timeout=WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM,
+            )
             response.raise_for_status()
             self.logger.info("Discord notification sent successfully.")
         except requests.exceptions.RequestException as e:

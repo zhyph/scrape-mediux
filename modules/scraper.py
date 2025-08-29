@@ -154,7 +154,7 @@ class MediuxLoginManager:
                 driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT
             ).until(
                 EC.presence_of_element_located(
-                    (By.XPATH, f"//button[contains(text(), '{nickname}')]")
+                    (By.XPATH, WebSelectors.get_user_button(nickname))
                 )
             )
             self.logger.info(f"User '{nickname}' is already logged in.")
@@ -168,9 +168,7 @@ class MediuxLoginManager:
             login_button = WebDriverWait(
                 driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
             ).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//button[contains(text(), 'Sign In')]")
-                )
+                EC.presence_of_element_located((By.XPATH, WebSelectors.SIGN_IN_BUTTON))
             )
             login_button.click()
 
@@ -194,7 +192,7 @@ class MediuxLoginManager:
                 driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
             ).until(
                 EC.presence_of_element_located(
-                    (By.XPATH, f"//button[contains(text(), '{nickname}')]")
+                    (By.XPATH, WebSelectors.get_user_button(nickname))
                 )
             )
             self.logger.info("Logged into Mediux successfully.")
@@ -361,7 +359,9 @@ class MediuxScraper:
                     f"Detected refresh operation for {media_type} {tmdb_id}, waiting for completion..."
                 )
 
-                WebDriverWait(driver, 30).until(
+                WebDriverWait(
+                    driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT
+                ).until(
                     lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
                 )
 
@@ -609,7 +609,7 @@ class MediuxScraper:
                 )
                 driver.refresh()
                 self.logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
-                time.sleep(5)
+                time.sleep(WebAutomationConstants.STANDARD_DELAY)
                 # Recursive call for retry - do not cache intermediate results
                 return self.scrape_mediux(
                     driver=driver,

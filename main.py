@@ -9,6 +9,7 @@ import logging
 import os
 import uuid
 
+from modules.base import FileSystemConstants
 from modules.config import ConfigManager
 from modules.orchestrator import run
 from modules.scheduler import schedule_run
@@ -77,7 +78,9 @@ def main():
             "plex_libraries": app_settings.get("plex_libraries"),
             "disable_cache": app_settings.get("disable_cache", False),
             "clear_cache": app_settings.get("clear_cache", False),
-            "cache_dir": app_settings.get("cache_dir", "./out"),
+            "cache_dir": app_settings.get(
+                "cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT
+            ),
         }
 
         if app_settings["cron_expression"]:

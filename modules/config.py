@@ -24,7 +24,7 @@ class ConfigManager:
     """Manages configuration loading from multiple sources with priority."""
 
     def __init__(self):
-        self.config_path = "./config.json"
+        self.config_path = FileSystemConstants.CONFIG_FILE_DEFAULT
         self.logger = logging.getLogger(__name__)
 
     def load_config_file(self, config_path: str) -> Dict[str, Any]:
@@ -73,7 +73,7 @@ class ConfigManager:
                     "sonarr_endpoint",
                     "discord_webhook_url",
                     "plex_token",
-                    "plex_url"
+                    "plex_url",
                 ]
                 else v
             )

@@ -50,7 +50,7 @@ def run(
     plex_libraries=None,
     disable_cache=False,
     clear_cache=False,
-    cache_dir="./out",
+    cache_dir=FileSystemConstants.OUTPUT_DIR_DEFAULT,
 ):
     """Main execution function."""
     # Create centralized scraper context
@@ -84,8 +84,8 @@ def run(
     logger.info(f"\n{separator}\n🔧 SETUP & CONFIGURATION\n{separator}")
 
     # Ensure output directories exist
-    output_dir = "./out"
-    kometa_dir = "./out/kometa"
+    output_dir = FileSystemConstants.OUTPUT_DIR_DEFAULT
+    kometa_dir = FileSystemConstants.KOMETA_DIR
     for dir_path in [output_dir, kometa_dir]:
         if not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
@@ -152,7 +152,7 @@ def run(
 
                     bulk_manager = BulkDataManager()
                     context.folder_bulk_data[folder_item] = bulk_manager.load_bulk_data(
-                        bulk_data_file=f"./out/kometa/{folder_item}_data.yml"
+                        bulk_data_file=f"{FileSystemConstants.KOMETA_DIR}/{folder_item}{FileSystemConstants.DATA_FILE_SUFFIX}"
                     )
 
     # Handle Plex libraries - load data for Plex library names
@@ -165,7 +165,7 @@ def run(
             from modules.file_manager import BulkDataManager
 
             context.folder_bulk_data[lib_name] = BulkDataManager().load_bulk_data(
-                bulk_data_file=f"./out/kometa/{safe_lib}_data.yml"
+                bulk_data_file=f"{FileSystemConstants.KOMETA_DIR}/{safe_lib}{FileSystemConstants.DATA_FILE_SUFFIX}"
             )
 
     # Phase 2: Media Discovery

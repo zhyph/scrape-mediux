@@ -14,6 +14,8 @@ import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
+from .base import FileSystemConstants
+
 logger = logging.getLogger(__name__)
 
 
@@ -498,7 +500,7 @@ class CacheManager:
         # Cache configuration settings
         disable_cache: bool = False,
         clear_cache: bool = False,
-        cache_dir: str = "./out",
+        cache_dir: str = FileSystemConstants.OUTPUT_DIR_DEFAULT,
     ):
         """
         Initialize cache manager.
@@ -768,7 +770,7 @@ def create_cache_manager_from_config(
     namespace_configs: Optional[Dict[str, Dict]] = None,
     disable_cache: bool = False,
     clear_cache: bool = False,
-    cache_dir: str = "./out",
+    cache_dir: str = FileSystemConstants.OUTPUT_DIR_DEFAULT,
 ) -> CacheManager:
     """
     Create a new CacheManager instance with specific configuration.
