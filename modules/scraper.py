@@ -512,13 +512,6 @@ class MediuxScraper:
             YAML data as string, empty string if extraction fails
         """
 
-        # Check cache FIRST to avoid expensive 5-10 second page loads
-        cached_result = self.cache_manager.get_scraped_yaml_data(
-            tmdb_id, media_type, preferred_users, excluded_users
-        )
-        if cached_result is not None:  # Note: empty string is a valid cached result
-            return cached_result
-
         self.logger.info(
             f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}"
         )
@@ -556,10 +549,6 @@ class MediuxScraper:
                 self.logger.warning(
                     f"No suitable YAML button found for TMDB ID {tmdb_id} after filtering."
                 )
-                # Cache negative result to avoid repeated failed lookups
-                self.cache_manager.set_scraped_yaml_data(
-                    tmdb_id, media_type, "", preferred_users, excluded_users
-                )
                 return ""
 
             driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
@@ -581,26 +570,16 @@ class MediuxScraper:
                     f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
                     "This might indicate an issue with the page or element structure. Returning empty."
                 )
-                self.cache_manager.set_scraped_yaml_data(
-                    tmdb_id, media_type, "", preferred_users, excluded_users
-                )
                 return ""
 
             yaml_len = len(yaml_data)
             self.logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
 
-            # Cache the successful result
-            self.cache_manager.set_scraped_yaml_data(
-                tmdb_id, media_type, yaml_data, preferred_users, excluded_users
-            )
             return yaml_data
 
         except Exception:
             if not driver.find_elements(By.XPATH, yaml_xpath):
                 self.logger.warning(f"YAML button not found for TMDB ID {tmdb_id}")
-                self.cache_manager.set_scraped_yaml_data(
-                    tmdb_id, media_type, "", preferred_users, excluded_users
-                )
                 return ""
 
             if retry_on_yaml_failure:
@@ -622,9 +601,5 @@ class MediuxScraper:
 
             self.logger.error(
                 f"Error scraping TMDB ID {tmdb_id}. This may be normal if no YAML is available."
-            )
-            # Cache empty result for failed extractions to avoid repeated attempts
-            self.cache_manager.set_scraped_yaml_data(
-                tmdb_id, media_type, "", preferred_users, excluded_users
             )
             return ""

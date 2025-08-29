@@ -248,18 +248,8 @@ class YAMLStructureProcessor(CachedService):
             Tuple containing the processed YAML string and a boolean indicating
             if any changes were made.
         """
-        # Create cache key based on content hash
-        content_hash = hashlib.md5(yaml_string.encode()).hexdigest()
-
-        # Check cache first
-        cached_result = self.cache_manager.get_processed_yaml_data(content_hash)
-        if cached_result is not None:
-            self.logger.debug("Using cached YAML preprocessing result")
-            return cached_result
-
         if "seasons:" not in yaml_string or "episodes:" not in yaml_string:
             result = (yaml_string, False)
-            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         seasons_match = re.search(
@@ -267,7 +257,6 @@ class YAMLStructureProcessor(CachedService):
         )
         if not seasons_match:
             result = (yaml_string, False)
-            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         seasons_indent = seasons_match.group("indent")
@@ -281,7 +270,6 @@ class YAMLStructureProcessor(CachedService):
 
         if not matches:
             result = (yaml_string, False)
-            self.cache_manager.set_processed_yaml_data(content_hash, yaml_string, False)
             return result
 
         season_count = 1
@@ -298,7 +286,6 @@ class YAMLStructureProcessor(CachedService):
         processed_yaml = regex.sub(season_replacer, yaml_string)
 
         result = (processed_yaml, True)
-        self.cache_manager.set_processed_yaml_data(content_hash, processed_yaml, True)
         return result
 
 

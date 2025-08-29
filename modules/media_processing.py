@@ -201,8 +201,6 @@ class MediaProcessingPipeline:
             if seasons_node and seasons_node.get("episodes", None) is not None:
                 logger.info(f"Detected malformed 'seasons' block for '{media_name}'.")
                 is_malformed = True
-            else:
-                logger.info(f"YAML structure for '{media_name}' appears valid.")
 
         except Exception as e:
             logger.error(
@@ -623,7 +621,19 @@ def process_single_media_item(
     # Log the start of processing immediately
     media_separator = "=" * 60
     logger.info(f"{media_separator}")
-    logger.info(f"🎬 STARTING: {media_name}")
+    # Get library/folder name from folder_map_for_media
+    library_name = "Unknown"
+    if folder_map_for_media and media_id_from_folder:
+        folder_entries = folder_map_for_media.get(media_id_from_folder, [])
+        if folder_entries:
+            # Handle both Plex (tuple) and folder scanning (string) cases
+            first_entry = folder_entries[0]
+            if isinstance(first_entry, tuple):
+                library_name = first_entry[0]  # Plex case: (lib_name, media_type)
+            else:
+                library_name = first_entry  # Folder scanning case: just the folder name
+
+    logger.info(f"🎬 STARTING: {media_name} [Library: {library_name}]")
     logger.info(f"   Source ID: {media_id_from_folder}")
     logger.info(f"{media_separator}")
 

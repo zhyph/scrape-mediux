@@ -39,17 +39,6 @@ class BulkDataManager(CachedService):
             Bulk data dictionary or set of URLs
         """
         if os.path.exists(bulk_data_file):
-            # Check file modification time for cache invalidation
-            file_mtime = os.path.getmtime(bulk_data_file)
-
-            # Check cache first
-            cached_result = self.cache_manager.get_bulk_yaml_data(
-                bulk_data_file, only_set_urls, file_mtime
-            )
-            if cached_result is not None:
-                self.logger.debug(f"Using cached bulk data for {bulk_data_file}")
-                return cached_result
-
             self.logger.info(f"Loading bulk data from {bulk_data_file}...")
             with open(bulk_data_file, "r", encoding="utf-8") as f:
                 file_content = f.read()
@@ -83,15 +72,8 @@ class BulkDataManager(CachedService):
             if not bulk_data:
                 self.logger.warning("No data found in bulk data file.")
                 empty_result = set() if only_set_urls else {"metadata": {}}
-                self.cache_manager.set_bulk_yaml_data(
-                    bulk_data_file, empty_result, only_set_urls, file_mtime
-                )
                 return empty_result
 
-            # Cache the result
-            self.cache_manager.set_bulk_yaml_data(
-                bulk_data_file, bulk_data, only_set_urls, file_mtime
-            )
             return bulk_data
 
         self.logger.debug(f"Bulk data file {bulk_data_file} not found.")

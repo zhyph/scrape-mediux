@@ -267,26 +267,6 @@ class NamespaceCache:
                 "default_ttl": 43200,  # 12 hours - series status changes are moderate
                 "description": "Sonarr API responses - moderate change frequency",
             },
-            "scraped_yaml": {
-                "max_size": 3000,
-                "default_ttl": 21600,  # 6 hours - scraped data needs periodic refresh
-                "description": "Scraped YAML data from Mediux website",
-            },
-            "bulk_yaml": {
-                "max_size": 1000,
-                "default_ttl": 3600,  # 1 hour - bulk data files change less frequently
-                "description": "Bulk YAML data loaded from files",
-            },
-            "processed_yaml": {
-                "max_size": 2000,
-                "default_ttl": 21600,  # 6 hours - processed data needs periodic refresh
-                "description": "Processed/fixed YAML data",
-            },
-            "yaml_data": {
-                "max_size": 3000,
-                "default_ttl": 21600,  # 6 hours - legacy namespace, kept for backward compatibility
-                "description": "Legacy YAML data namespace - kept for backward compatibility",
-            },
             "media_ids": {
                 "max_size": 10000,
                 "default_ttl": None,  # permanent - folder structure IDs are stable
@@ -576,82 +556,6 @@ class CacheManager:
         cache_key = f"{media_name}:{tmdb_id or 'none'}"
         self.cache.set("sonarr_api", cache_key, (tvdb_id, ended))
         self.logger.debug(f"Cached Sonarr status: {media_name} -> {tvdb_id}, {ended}")
-
-    def get_scraped_yaml_data(
-        self,
-        tmdb_id: str,
-        media_type: str,
-        preferred_users: Optional[List[str]] = None,
-        excluded_users: Optional[List[str]] = None,
-    ) -> Optional[str]:
-        """Get scraped YAML data from Mediux website with caching."""
-        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
-        result = self.cache.get("scraped_yaml", cache_key)
-
-        if result is not None:
-            self.logger.info(
-                f"Using cached scraped YAML data for {media_type} {tmdb_id}"
-            )
-            return result
-        else:
-            return None
-
-    def set_scraped_yaml_data(
-        self,
-        tmdb_id: str,
-        media_type: str,
-        yaml_data: str,
-        preferred_users: Optional[List[str]] = None,
-        excluded_users: Optional[List[str]] = None,
-    ):
-        """Set scraped YAML data from Mediux website in cache."""
-        cache_key = f"{tmdb_id}:{media_type}:{sorted(preferred_users or [])}:{sorted(excluded_users or [])}"
-        self.cache.set("scraped_yaml", cache_key, yaml_data)
-        self.logger.debug(f"Cached scraped YAML data for {media_type} {tmdb_id}")
-
-    def get_bulk_yaml_data(
-        self, file_path: str, only_set_urls: bool = False, file_mtime: float = 0.0
-    ) -> Optional[Any]:
-        """Get bulk YAML data file with caching."""
-        cache_key = f"bulk_data:{file_path}:{only_set_urls}:{file_mtime}"
-        result = self.cache.get("bulk_yaml", cache_key)
-
-        if result is not None:
-            self.logger.debug(f"Using cached bulk YAML data for {file_path}")
-            return result
-        else:
-            return None
-
-    def set_bulk_yaml_data(
-        self,
-        file_path: str,
-        yaml_data: Any,
-        only_set_urls: bool = False,
-        file_mtime: float = 0.0,
-    ):
-        """Set bulk YAML data file in cache."""
-        cache_key = f"bulk_data:{file_path}:{only_set_urls}:{file_mtime}"
-        self.cache.set("bulk_yaml", cache_key, yaml_data)
-        self.logger.debug(f"Cached bulk YAML data for {file_path}")
-
-    def get_processed_yaml_data(self, content_hash: str) -> Optional[Tuple[str, bool]]:
-        """Get processed YAML data with caching."""
-        cache_key = f"yaml_preprocess:{content_hash}"
-        result = self.cache.get("processed_yaml", cache_key)
-
-        if result is not None:
-            self.logger.debug("Using cached YAML preprocessing result")
-            return result
-        else:
-            return None
-
-    def set_processed_yaml_data(
-        self, content_hash: str, yaml_data: str, was_fixed: bool = False
-    ):
-        """Set processed YAML data in cache."""
-        cache_key = f"yaml_preprocess:{content_hash}"
-        self.cache.set("processed_yaml", cache_key, (yaml_data, was_fixed))
-        self.logger.debug("Cached YAML preprocessing result")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics."""

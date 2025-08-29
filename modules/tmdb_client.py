@@ -141,8 +141,6 @@ class TMDBClient:
             media_name, movie_title
         )
 
-        self.logger.info(".2f")
-
         if tv_score > movie_score:
             self.logger.info(f"Selected TV show '{tv_title}' based on title similarity")
             return media_id, "tv"
@@ -213,8 +211,6 @@ class TMDBClient:
                 media_name, movie_title
             )
 
-            self.logger.info(".2f")
-
             if tv_score > movie_score:
                 self.logger.info(
                     f"Selected TV show '{tv_title}' based on title similarity"
@@ -235,10 +231,8 @@ class TMDBClient:
             )
 
             if tv_confidence > movie_confidence:
-                self.logger.info(".2f")
                 return tv_result["id"], "tv"
             else:
-                self.logger.info(".2f")
                 return movie_result["id"], "movie"
 
     def fetch_tmdb_id(
