@@ -368,7 +368,7 @@ class MediuxScraper:
         tmdb_id: str,
     ) -> None:
         """
-        Wait for update process to complete on Mediux page.
+        Wait for update process to complete on Mediux page with optimized polling.
 
         Args:
             driver: WebDriver instance
@@ -377,10 +377,15 @@ class MediuxScraper:
             media_type: Type of media being processed
             tmdb_id: TMDB ID being processed
         """
+        # Temporarily disable implicit wait for instant checks
+        original_implicit = WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT
+        driver.implicitly_wait(0)
+
         try:
             update_toast_xpath = f"//li[contains(@class, 'toast')]//div[contains(text(), '{updating_text}')]"
             success_toast_xpath = f"//li[contains(@class, 'toast')]//div[contains(text(), '{success_text}')]"
 
+            # Quick initial check
             update_elements = driver.find_elements(By.XPATH, update_toast_xpath)
             success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
 
@@ -391,20 +396,20 @@ class MediuxScraper:
                     f"Waiting for update completion for {media_type} {tmdb_id}..."
                 )
 
-                print(
-                    f"Update: {len(driver.find_elements(By.XPATH, update_toast_xpath)) == 0}, Success: {len(driver.find_elements(By.XPATH, success_toast_xpath)) > 0}"
-                )
-
-                WebDriverWait(
+                # Optimized polling using Selenium's WebDriverWait for clean implementation
+                wait = WebDriverWait(
                     driver,
                     WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
-                ).until(
+                    poll_frequency=WebAutomationConstants.BRIEF_DELAY,  # 0.5s
+                )
+                wait.until(
                     lambda d: (
                         len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
                         or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
                     )
                 )
 
+                # Final state check
                 success_elements = driver.find_elements(By.XPATH, success_toast_xpath)
                 if success_elements:
                     self.logger.debug(
@@ -415,9 +420,9 @@ class MediuxScraper:
                         f"Update process completed for {media_type} {tmdb_id}"
                     )
 
-                # Only sleep briefly if update was in progress
-                if update_elements:
-                    time.sleep(WebAutomationConstants.BRIEF_DELAY)
+                # Minimal sleep after update completion
+                time.sleep(WebAutomationConstants.BRIEF_DELAY)
+
             else:
                 if success_elements:
                     self.logger.debug(
@@ -428,24 +433,32 @@ class MediuxScraper:
 
         except Exception as e:
             self.logger.warning(f"Error while waiting for update process: {e}")
+        finally:
+            driver.implicitly_wait(original_implicit)
 
     def wait_for_refresh_completion(
         self, driver: WebDriver, media_type: str, tmdb_id: str
     ) -> None:
         """
-        Wait for refresh operations to complete.
+        Wait for refresh operations to complete with optimized polling.
 
         Args:
             driver: WebDriver instance
             media_type: Type of media being processed
             tmdb_id: TMDB ID being processed
         """
+        # Temporarily disable implicit wait for instant checks
+        original_implicit = WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT
+        driver.implicitly_wait(0)
+
         try:
             self.logger.debug(
                 f"Checking for refresh operations on {media_type} {tmdb_id}..."
             )
 
             refresh_spinner_xpath = "//svg[contains(@class, 'lucide-refresh-cw') and contains(@class, 'animate-spin')]"
+
+            # Quick initial check
             spinner_elements = driver.find_elements(By.XPATH, refresh_spinner_xpath)
 
             if spinner_elements:
@@ -456,17 +469,22 @@ class MediuxScraper:
                     f"Detected refresh operation for {media_type} {tmdb_id}, waiting for completion..."
                 )
 
-                WebDriverWait(
+                # Optimized polling using Selenium's WebDriverWait for clean implementation
+                wait = WebDriverWait(
                     driver,
                     WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
-                ).until(
+                    poll_frequency=WebAutomationConstants.BRIEF_DELAY,  # 0.5s
+                )
+                wait.until(
                     lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
                 )
 
                 self.logger.debug(
                     f"Page status: Refresh completed for {media_type} {tmdb_id}"
                 )
-                time.sleep(WebAutomationConstants.BRIEF_DELAY)
+                time.sleep(
+                    WebAutomationConstants.BRIEF_DELAY
+                )  # Minimal post-refresh pause
             else:
                 self.logger.debug(
                     f"Page status: No refresh operation detected for {media_type} {tmdb_id}"
@@ -474,6 +492,8 @@ class MediuxScraper:
 
         except Exception as e:
             self.logger.warning(f"Error while waiting for refresh spinner: {e}")
+        finally:
+            driver.implicitly_wait(original_implicit)
 
     def find_yaml_button(
         self,
@@ -494,9 +514,21 @@ class MediuxScraper:
         Returns:
             WebElement of the selected YAML button or None
         """
+        # Temporarily disable implicit wait for instant checks
+        original_implicit = WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT
+        driver.implicitly_wait(0)
+
         yaml_button = None
 
         try:
+            # Quick check to avoid 5-second wait if no YAML buttons are present
+            quick_buttons = driver.find_elements(By.XPATH, yaml_xpath)
+            if not quick_buttons:
+                self.logger.debug(
+                    "No YAML buttons found instantly, likely no YAML available"
+                )
+                driver.implicitly_wait(original_implicit)
+                return None
             all_yaml_buttons = WebDriverWait(
                 driver,
                 WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
@@ -585,6 +617,7 @@ class MediuxScraper:
                 "No suitable YAML button found after considering preferences and exclusions."
             )
 
+        driver.implicitly_wait(original_implicit)
         return yaml_button
 
     def scrape_mediux(
@@ -638,6 +671,18 @@ class MediuxScraper:
             raise
 
         self.logger.debug(f"Navigated to URL: {url}")
+
+        # Quick check for "No Sets Available" - if present, no YAML exists, skip all waiting
+        try:
+            driver.implicitly_wait(0)  # Disable implicit wait for instant check
+            no_sets_elements = driver.find_elements(By.XPATH, "//div[text()='No Sets Available.']")
+            if no_sets_elements:
+                self.logger.debug(f"No Sets Available for {media_type} {tmdb_id} - skipping waits")
+                driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)  # Restore
+                return ""
+        finally:
+            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)  # Restore
+
         yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
         time.sleep(WebAutomationConstants.BRIEF_DELAY)
 
@@ -667,11 +712,11 @@ class MediuxScraper:
 
             yaml_element = WebDriverWait(
                 driver,
-                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
+                WebAutomationConstants.YAML_LOAD_TIMEOUT,
             ).until(EC.presence_of_element_located((By.XPATH, "//code")))
             WebDriverWait(
                 driver,
-                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
+                WebAutomationConstants.YAML_LOAD_TIMEOUT,
             ).until(
                 lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
             )

@@ -152,10 +152,12 @@ class WebAutomationConstants:
     IMPLICIT_WAIT_TIMEOUT = 5
     ELEMENT_WAIT_TIMEOUT_SHORT = 1
     ELEMENT_WAIT_TIMEOUT_STANDARD = 5
-    PROCESS_WAIT_TIMEOUT = 10
+    PROCESS_WAIT_TIMEOUT = 5  # Reduced from 10 to optimize for bulk scraping
+    YAML_LOAD_TIMEOUT = 3  # Dedicated timeout for YAML content loading
+    ABSENT_ELEMENT_TIMEOUT = 2  # Quick timeout when elements may not appear
 
     # Sleep delays (in seconds)
-    BRIEF_DELAY = 1
+    BRIEF_DELAY = 0.5  # Reduced from 1 to minimize unnecessary delays
     STANDARD_DELAY = 5
 
 
