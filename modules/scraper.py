@@ -10,8 +10,6 @@ import os
 import re
 import time
 from typing import List, Optional, Tuple
-import urllib3
-
 from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
@@ -142,8 +140,6 @@ class WebDriverManager:
         options = self.setup_chrome_options(
             headless=headless, profile_path=profile_path
         )
-
-        setattr(urllib3, "_pool_maxsize", 50)
 
         try:
             # Create WebDriver service
@@ -659,16 +655,10 @@ class MediuxScraper:
                 media_type, tmdb_id
             )
 
-        # Navigation errors should always raise exceptions (never cached)
         try:
-            # Check if we're already on the correct URL (from pre-loading optimization)
-            current_url = driver.current_url
-            if current_url == url:
-                self.logger.debug(f"Already on target URL (pre-loaded): {url}")
-            else:
-                self.logger.debug(f"Navigating to: {url}")
-                driver.get(url)
-                self.logger.debug(f"Navigated to URL: {url}")
+            self.logger.debug(f"Navigating to: {url}")
+            driver.get(url)
+            self.logger.debug(f"Navigated to URL: {url}")
         except Exception as e:
             self.logger.error(f"An error occurred during navigation to {url}: {e}")
             raise
