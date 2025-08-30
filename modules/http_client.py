@@ -46,12 +46,12 @@ class GlobalSessionManager:
 
         # Configure HTTP adapter with connection pooling
         http_adapter = HTTPAdapter(
-            max_retries=retry_strategy, pool_connections=10, pool_maxsize=10
+            max_retries=retry_strategy, pool_connections=50, pool_maxsize=50
         )
 
         # Configure HTTPS adapter
         https_adapter = HTTPAdapter(
-            max_retries=retry_strategy, pool_connections=10, pool_maxsize=10
+            max_retries=retry_strategy, pool_connections=50, pool_maxsize=50
         )
 
         # Mount adapters
@@ -118,5 +118,3 @@ def get_global_session() -> requests.Session:
         The shared requests.Session instance used across the application
     """
     return global_session.session
-
-

@@ -152,11 +152,12 @@ class WebAutomationConstants:
     IMPLICIT_WAIT_TIMEOUT = 5
     ELEMENT_WAIT_TIMEOUT_SHORT = 1
     ELEMENT_WAIT_TIMEOUT_STANDARD = 5
-    PROCESS_WAIT_TIMEOUT = 5  # Reduced from 10 to optimize for bulk scraping
-    YAML_LOAD_TIMEOUT = 3  # Dedicated timeout for YAML content loading
+    PROCESS_WAIT_TIMEOUT = 30
+
+    YAML_LOAD_TIMEOUT = 5
 
     # Sleep delays (in seconds)
-    BRIEF_DELAY = 0.5  # Reduced from 1 to minimize unnecessary delays
+    BRIEF_DELAY = 0.5
 
 
 class MediuxConfig:

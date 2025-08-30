@@ -657,7 +657,66 @@ def process_single_media_item(
     if not tmdb_id or not media_type:
         return
 
-    # Check Sonarr for TV series status
+    from modules.intelligent_cache import get_cache_manager
+
+    cache_manager = get_cache_manager()
+
+    sonarr_previously_cached = False
+    if media_type == "tv":
+        sonarr_previously_cached = cache_manager.sonarr_cache_exists(
+            media_name, tmdb_id
+        )
+
+    from modules.scraper import MediuxConfig
+
+    preloader_thread = None
+    preloading_url = None
+    if driver and not getattr(config, "mediux_url", None):
+        if media_type == "tv":
+            if sonarr_previously_cached:
+                logger.debug(
+                    f"⏭️ Skipping pre-load - Sonarr cache exists for {media_name}"
+                )
+            else:
+                try:
+                    import threading
+                    from modules.base import ScraperContext
+
+                    preloading_url = MediuxConfig.get_show_url(tmdb_id)
+
+                    def preload_page():
+                        try:
+                            logger.debug(
+                                f"🚀 Pre-loading Mediux page: {preloading_url}"
+                            )
+                            # Temporarily disable implicit wait for instant navigation
+                            original_implicit = driver.timeouts.implicit_wait
+                            driver.implicitly_wait(0)
+                            try:
+                                driver.get(preloading_url)
+                                logger.debug("✅ Pre-load completed")
+                            except Exception as e:
+                                logger.debug(f"Pre-load failed (may be expected): {e}")
+                            finally:
+                                driver.implicitly_wait(original_implicit)
+                        except Exception as e:
+                            logger.debug(f"Pre-loading skipped: {e}")
+
+                    preloader_thread = threading.Thread(
+                        target=preload_page, daemon=True
+                    )
+                    preloader_thread.start()
+                    logger.debug(
+                        f"🚀 Started pre-load thread - Sonarr cache miss detected for {media_name}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to start pre-loader: {e}")
+        else:
+            logger.debug(
+                f"🎬 MOVIE: Skipping pre-load for {media_name} (not needed for movies)"
+            )
+
+    # Check Sonarr for TV series status while page is pre-loading
     tvdb_id_for_tv, ended_status = pipeline._check_sonarr_status(
         media_type=media_type,
         media_name=media_name,
@@ -665,6 +724,31 @@ def process_single_media_item(
         sonarr_api_key=config.sonarr_api_key,
         sonarr_endpoint=config.sonarr_endpoint,
     )
+
+    # Check if we can cancel preloading due to skipping (basic status check only)
+    should_likely_skip = False
+    if ended_status and media_type == "tv" and not config.process_all:
+        # This is a TV show that has ended and we're not in process_all mode
+        # We'll likely skip this, but let the full logic run later after other checks
+        should_likely_skip = True
+        logger.debug(f"Detected likely skip for ended TV show: {media_name}")
+
+    # Wait for pre-loader to finish (or cancel if we'll likely skip)
+    if preloader_thread and preloader_thread.is_alive():
+        if should_likely_skip:
+            logger.debug("🚫 Cancelling page pre-load - item will likely be skipped")
+            # Set a flag to stop the preloader thread gracefully
+            preloader_thread.join(timeout=0.1)  # Very brief wait to allow cleanup
+        elif not sonarr_previously_cached:
+            # If Sonarr data wasn't cached, wait for page preload completion
+            logger.debug("⏳ Waiting for page pre-load to complete...")
+            preloader_thread.join(timeout=2)  # Original timeout for normal cases
+        else:
+            # If Sonarr was cached, wait but with shorter timeout
+            logger.debug(".4f")
+            preloader_thread.join(timeout=0.5)  # Shorter for cached scenarios
+    elif preloader_thread:
+        logger.debug("✅ Pre-load already completed")
 
     # Check existing YAML data
     old_yaml_content, is_already_in_yaml, key_for_log = (

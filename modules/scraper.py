@@ -10,6 +10,7 @@ import os
 import re
 import time
 from typing import List, Optional, Tuple
+import urllib3
 
 from selenium import webdriver
 from selenium.common.exceptions import (
@@ -141,6 +142,8 @@ class WebDriverManager:
         options = self.setup_chrome_options(
             headless=headless, profile_path=profile_path
         )
+
+        setattr(urllib3, "_pool_maxsize", 50)
 
         try:
             # Create WebDriver service
@@ -400,13 +403,9 @@ class MediuxScraper:
                 wait = WebDriverWait(
                     driver,
                     WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
-                    poll_frequency=WebAutomationConstants.BRIEF_DELAY,  # 0.5s
                 )
                 wait.until(
-                    lambda d: (
-                        len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
-                        or len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
-                    )
+                    lambda d: len(d.find_elements(By.XPATH, success_toast_xpath)) > 0
                 )
 
                 # Final state check
@@ -473,7 +472,6 @@ class MediuxScraper:
                 wait = WebDriverWait(
                     driver,
                     WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
-                    poll_frequency=WebAutomationConstants.BRIEF_DELAY,  # 0.5s
                 )
                 wait.until(
                     lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
@@ -663,25 +661,32 @@ class MediuxScraper:
 
         # Navigation errors should always raise exceptions (never cached)
         try:
-            # Simple health check - try to access driver property
-            _ = driver.current_url
-            driver.get(url)
+            # Check if we're already on the correct URL (from pre-loading optimization)
+            current_url = driver.current_url
+            if current_url == url:
+                self.logger.debug(f"Already on target URL (pre-loaded): {url}")
+            else:
+                self.logger.debug(f"Navigating to: {url}")
+                driver.get(url)
+                self.logger.debug(f"Navigated to URL: {url}")
         except Exception as e:
-            self.logger.error(f"An error occurred during driver.get({url}): {e}")
+            self.logger.error(f"An error occurred during navigation to {url}: {e}")
             raise
-
-        self.logger.debug(f"Navigated to URL: {url}")
 
         # Quick check for "No Sets Available" - if present, no YAML exists, skip all waiting
         try:
             driver.implicitly_wait(0)  # Disable implicit wait for instant check
-            no_sets_elements = driver.find_elements(By.XPATH, "//div[text()='No Sets Available.']")
+            no_sets_elements = driver.find_elements(
+                By.XPATH, "//div[text()='No Sets Available.']"
+            )
             if no_sets_elements:
-                self.logger.debug(f"No Sets Available for {media_type} {tmdb_id} - skipping waits")
-                driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)  # Restore
+                self.logger.debug(
+                    f"No Sets Available for {media_type} {tmdb_id} - skipping waits"
+                )
+                driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
                 return ""
         finally:
-            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)  # Restore
+            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
 
         yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
         time.sleep(WebAutomationConstants.BRIEF_DELAY)

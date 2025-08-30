@@ -160,7 +160,8 @@ def run(
         from modules.intelligent_cache import get_cache_manager
 
         intelligent_cache_manager = get_cache_manager()
-        # Cache loading removed - load_cache method was unused
+        # Load cache from file if it exists
+        intelligent_cache_manager.load_cache()
 
     # Handle Plex libraries - load data for Plex library names
     if plex_libraries:

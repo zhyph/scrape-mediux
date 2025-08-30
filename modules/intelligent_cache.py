@@ -255,13 +255,8 @@ class NamespaceCache:
             },
             "sonarr_api": {
                 "max_size": 2000,
-                "default_ttl": 43200,  # 12 hours - series status changes are moderate
+                "default_ttl": 86400,  # 24 hours - series status changes are moderate
                 "description": "Sonarr API responses - moderate change frequency",
-            },
-            "media_ids": {
-                "max_size": 10000,
-                "default_ttl": None,  # permanent - folder structure IDs are stable
-                "description": "Media folder IDs - stable folder structure",
             },
         }
 
@@ -357,7 +352,6 @@ class NamespaceCache:
                         "cache": cache_dict,
                         "max_size": cache.max_size,
                         "default_ttl": cache.default_ttl,
-                        "stats": cache.stats,
                     }
 
                 with open(filepath, "wb") as f:
@@ -369,6 +363,72 @@ class NamespaceCache:
                 import traceback
 
                 self.logger.debug(f"Cache save error details: {traceback.format_exc()}")
+
+    def load_from_file(self, filepath: str):
+        """Load all cache data from a pickle file."""
+        with self.lock:
+            try:
+                if not os.path.exists(filepath):
+                    self.logger.debug(
+                        f"Cache file {filepath} does not exist - starting with empty cache"
+                    )
+                    return
+
+                self.logger.debug(f"Loading intelligent cache from {filepath}")
+
+                with open(filepath, "rb") as f:
+                    cache_data = pickle.load(f)
+
+                # Load each namespace
+                for name, namespace_data in cache_data.items():
+                    if name not in self.namespaces:
+                        namespace_data.get("cache", {})
+
+                        self.namespaces[name] = IntelligentCache(
+                            max_size=namespace_data.get(
+                                "max_size", self.default_max_size
+                            ),
+                            default_ttl=namespace_data.get(
+                                "default_ttl", self.default_ttl
+                            ),
+                            max_memory_mb=self.max_memory_mb,
+                            memory_check_interval=self.memory_check_interval,
+                        )
+
+                    # Load the cache entries
+                    cache = self.namespaces[name]
+                    for key, entry_data in namespace_data.get("cache", {}).items():
+                        # Create CacheEntry with loaded data
+                        entry = CacheEntry(
+                            value=entry_data["value"],
+                            ttl_seconds=entry_data["ttl_seconds"],
+                        )
+                        entry.created_at = entry_data["created_at"]
+                        entry.accessed_at = entry_data["accessed_at"]
+                        entry.access_count = entry_data["access_count"]
+
+                        cache.cache[key] = entry
+
+                    # Reset cache statistics for per-run tracking
+                    cache.stats = {
+                        "hits": 0,
+                        "misses": 0,
+                        "evictions": 0,
+                        "size": len(cache.cache),
+                    }
+
+                    # Clean up expired entries on load
+                    cache.cleanup_expired()
+
+                self.logger.info(
+                    f"Intelligent cache loaded from {filepath} ({len(self.namespaces)} namespaces)"
+                )
+
+            except Exception as e:
+                self.logger.error(f"Failed to load intelligent cache: {e}")
+                import traceback
+
+                self.logger.debug(f"Cache load error details: {traceback.format_exc()}")
 
 
 class CacheManager:
@@ -439,7 +499,7 @@ class CacheManager:
         self, media_name: str, tmdb_id: Optional[str]
     ) -> Optional[Tuple[str, bool]]:
         """Get Sonarr series status with caching."""
-        cache_key = f"{media_name}:{tmdb_id or 'none'}"
+        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
         result = self.cache.get("sonarr_api", cache_key)
 
         if result is not None:
@@ -457,13 +517,31 @@ class CacheManager:
         ended: Optional[bool],
     ):
         """Set Sonarr series status in cache."""
-        cache_key = f"{media_name}:{tmdb_id or 'none'}"
+        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
         self.cache.set("sonarr_api", cache_key, (tvdb_id, ended))
         self.logger.debug(f"Cached Sonarr status: {media_name} -> {tvdb_id}, {ended}")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics."""
         return self.cache.get_all_stats()
+
+    def sonarr_cache_exists(self, media_name: str, tmdb_id: Optional[str]) -> bool:
+        """Check if Sonarr cache entry exists without triggering access or logging."""
+        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
+
+        # Get namespace without triggering any access logic
+        namespace = self.cache.namespaces.get("sonarr_api")
+        if namespace:
+            return cache_key in namespace.cache
+
+        return False
+
+    def load_cache(self):
+        """Load cache from file."""
+        filepath = self.get_cache_file_path(
+            FileSystemConstants.INTELLIGENT_CACHE_FILENAME
+        )
+        self.cache.load_from_file(filepath)
 
     def cleanup_expired(self):
         """Clean up expired entries across all namespaces."""
