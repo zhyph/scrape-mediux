@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 def get_media_ids(
     *,
-    root_folder=None,
-    selected_folders=None,
     plex_url=None,
     plex_token=None,
     plex_libraries=None,
@@ -28,15 +26,12 @@ def get_media_ids(
             return plex_client.get_media_ids_from_plex(plex_libraries)
         except Exception as e:
             logger.error(f"Failed to get media IDs from Plex: {e}")
-            logger.warning("Plex connection failed. Falling back to folder scanning.")
+            logger.warning(
+                "Plex connection failed. Ensure Plex configuration is correct."
+            )
 
     # Second priority: Try to list available libraries if partial Plex config
-    if (
-        plex_url
-        and plex_token
-        and root_folder
-        and (not plex_libraries or len(plex_libraries) == 0)
-    ):
+    if plex_url and plex_token and (not plex_libraries or len(plex_libraries) == 0):
         try:
             from modules.external_services import PlexClient
 
@@ -46,20 +41,18 @@ def get_media_ids(
             for lib in available:
                 logger.info(f"  - {lib}")
             logger.warning(
-                "No Plex libraries specified. Please set 'plex_libraries' in your config or CLI. Using root_folder instead."
+                "No Plex libraries specified. Please set 'plex_libraries' in your config or CLI."
             )
         except Exception as e:
             logger.error(f"Could not connect to Plex to list libraries: {e}")
-            logger.warning("Using root_folder instead.")
 
-    # Final fallback: Use folder scanning if root_folder is available
-    if root_folder:
-        from modules.external_services import MediaDiscoveryService
-
-        discovery_service = MediaDiscoveryService()
-        return discovery_service.get_media_ids_from_folder(
-            root_folder, selected_folders
+    # If we can't get Plex libraries, raise an exception that will be handled upstream
+    if not plex_url or not plex_token:
+        logger.error(
+            "Plex configuration is required. Please set 'plex_url' and 'plex_token' in your config or CLI."
         )
-    else:
-        logger.error("No Plex config or root_folder provided. Nothing to do. Exiting.")
-        exit(1)
+        raise ValueError("Missing required Plex configuration")
+
+    # If we get here without returning, something went wrong
+    logger.error("Failed to retrieve media IDs")
+    return ([], {})

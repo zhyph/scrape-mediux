@@ -32,11 +32,9 @@ def run(
     nickname,
     sonarr_api_key,
     sonarr_endpoint,
-    root_folder_global,
     config_path=None,
     output_dir_global=None,
     discord_webhook_url_global=None,
-    selected_folders=None,
     headless=True,
     process_all=False,
     chromedriver_path=None,
@@ -67,13 +65,8 @@ def run(
     start_time = time.time()
     logger.info("🚀 MEDIUX SCRAPER STARTED")
 
-    folder_count = (
-        len(root_folder_global) if isinstance(root_folder_global, list) else 1
-    )
-    logger.info(f"📂 Processing {folder_count} folder(s)")
+    logger.info("📂 Processing media libraries")
 
-    if selected_folders:
-        logger.debug(f"Target folders: {', '.join(selected_folders)}")
     if preferred_users:
         logger.debug(f"Preferred users: {', '.join(preferred_users)}")
     if excluded_users:
@@ -135,26 +128,6 @@ def run(
             )
         )
 
-    if root_folder_global:
-        root_folders_list = (
-            root_folder_global
-            if isinstance(root_folder_global, list)
-            else [root_folder_global]
-        )
-
-        context.clear_folder_bulk_data()
-        for root_path_item in root_folders_list:
-            if not root_path_item or not os.path.isdir(root_path_item):
-                continue
-            for folder_item in os.listdir(root_path_item):
-                if os.path.isdir(os.path.join(root_path_item, folder_item)):
-                    from modules.file_manager import BulkDataManager
-
-                    bulk_manager = BulkDataManager()
-                    context.folder_bulk_data[folder_item] = bulk_manager.load_bulk_data(
-                        bulk_data_file=f"{FileSystemConstants.KOMETA_DIR}/{folder_item}{FileSystemConstants.DATA_FILE_SUFFIX}"
-                    )
-
     # Handle Plex libraries - load data for Plex library names
     if plex_libraries:
         import re
@@ -174,13 +147,26 @@ def run(
 
     from modules.media_discovery import get_media_ids
 
-    media_ids_to_process, folder_map_for_media = get_media_ids(
-        root_folder=root_folder_global,
-        selected_folders=selected_folders,
-        plex_url=plex_url,
-        plex_token=plex_token,
-        plex_libraries=plex_libraries,
-    )
+    try:
+        media_ids_to_process, folder_map_for_media = get_media_ids(
+            plex_url=plex_url,
+            plex_token=plex_token,
+            plex_libraries=plex_libraries,
+        )
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        exit(1)
+    except Exception as e:
+        logger.error(f"Failed to retrieve media IDs: {e}")
+        logger.info("Please check your Plex configuration and try again.")
+        exit(1)
+
+    if not media_ids_to_process or len(media_ids_to_process) == 0:
+        logger.error("No media items found. Please check your Plex configuration.")
+        logger.info(
+            "Ensure 'plex_url', 'plex_token', and 'plex_libraries' are correctly configured."
+        )
+        exit(1)
 
     logger.info(f"✅ Found {len(media_ids_to_process)} media items to process")
     if remove_paths:
@@ -206,12 +192,12 @@ def run(
     # Phase 3: WebDriver Initialization
     logger.info(f"\n{separator}\n🌐 BROWSER INITIALIZATION\n{separator}")
     logger.info("👤 Starting Chrome WebDriver...")
+    from modules.scraper import MediuxLoginManager, WebDriverManager
 
     driver = None
-    try:
-        from modules.scraper import MediuxLoginManager, WebDriverManager
+    webdriver_manager = WebDriverManager(config_path)
 
-        webdriver_manager = WebDriverManager(config_path)
+    try:
         driver = webdriver_manager.init_driver(
             headless=headless,
             profile_path=profile_path,
@@ -235,6 +221,9 @@ def run(
         logger.info(f"👤 Processing {len(media_ids_to_process)} media items...")
 
         with logging_redirect_tqdm():
+            processed_count = 0
+            health_check_interval = 25  # Check every 25 items during long runs
+
             for (
                 media_id_from_folder,
                 media_name,
@@ -253,23 +242,33 @@ def run(
                         media_type_from_plex=media_type_from_plex,
                         context=context,
                     )
+                    processed_count += 1
+
                 except (ReadTimeoutError, TimeoutException):
                     logger.error(
                         "A timeout error occurred. Re-initializing WebDriver and logging in again."
                     )
-                    if driver:
-                        driver.quit()
+
+                    # Safely quit current driver and clean up processes
+                    webdriver_manager.safe_quit_driver(driver)
+
+                    # Initialize new driver with enhanced stability options
                     driver = webdriver_manager.init_driver(
                         headless=headless,
                         profile_path=profile_path,
                         chromedriver_path=chromedriver_path,
                     )
+
+                    # Re-login to Mediux
                     login_manager.login(
                         driver=driver,
                         username=username,
                         password=password,
                         nickname=nickname,
                     )
+
+                    # Update context with new driver
+                    context.set_driver(driver)
     finally:
         # Phase 5: Cleanup and Summary
         logger.info(f"\n{separator}\n🧹 CLEANUP & SUMMARY\n{separator}")
@@ -309,8 +308,7 @@ def run(
         )
 
         logger.info("👤 Shutting down...")
-        if driver:
-            driver.quit()
+        webdriver_manager.safe_quit_driver(driver)
 
         # Enhanced final summary
         logger.info(f"\n{separator}\n📊 FINAL RESULTS\n{separator}")
@@ -348,17 +346,17 @@ def run(
             try:
                 cache_stats = intelligent_cache_manager.get_cache_stats()
                 if cache_stats:
-                    logger.info("📊 Cache Performance:")
+                    logger.debug("📊 Cache Performance:")
                     for namespace, stats in cache_stats.items():
                         if stats.get("hits", 0) > 0 or stats.get("misses", 0) > 0:
                             total = stats.get("hits", 0) + stats.get("misses", 0)
                             hit_rate = (
                                 (stats.get("hits", 0) / total * 100) if total > 0 else 0
                             )
-                            logger.info(
+                            logger.debug(
                                 f"      • {namespace}: {hit_rate:.1f}% hit rate ({stats.get('hits', 0)} hits, {stats.get('misses', 0)} misses)"
                             )
-                    logger.info(
+                    logger.debug(
                         f"   • Cache file: {cache_manager.get_cache_file_path(FileSystemConstants.INTELLIGENT_CACHE_FILENAME)}"
                     )
             except Exception as e:
@@ -406,6 +404,5 @@ def run(
 
 
 # Global variables for backward compatibility
-root_folder_global = ""
 output_dir_global = None
 discord_webhook_url_global = None

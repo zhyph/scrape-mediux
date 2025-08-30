@@ -117,52 +117,6 @@ class FileWriter(CachedService):
         self.logger.debug(f"Total existing URLs collected: {len(existing_urls)}")
         return existing_urls
 
-    def _collect_existing_urls(
-        self, root_folder_global: Union[str, List[str]]
-    ) -> Set[str]:
-        """
-        Collect existing set URLs from all data files with caching.
-
-        Args:
-            root_folder_global: Root folder(s) to scan
-
-        Returns:
-            Set of existing URLs
-        """
-        # Create cache key based on root folders and their modification times
-        root_folders_list = (
-            root_folder_global
-            if isinstance(root_folder_global, list)
-            else [root_folder_global]
-        )
-
-        existing_urls = set()
-
-        folder_cache = {}
-        for root in root_folders_list:
-            if os.path.exists(root):
-                folder_cache[root] = os.listdir(root)
-            else:
-                self.logger.warning(f"Root path does not exist: {root}")
-                folder_cache[root] = []
-
-        for root, folders_in_root in folder_cache.items():
-            for folder_item in folders_in_root:
-                folder_path = os.path.join(root, folder_item)
-                if os.path.isdir(folder_path):
-                    file_path = os.path.join(
-                        FileSystemConstants.KOMETA_DIR,
-                        f"{folder_item}{FileSystemConstants.DATA_FILE_SUFFIX}",
-                    )
-                    bulk_manager = BulkDataManager()
-                    existing_urls.update(
-                        bulk_manager.load_bulk_data(
-                            bulk_data_file=file_path, only_set_urls=True
-                        )
-                    )
-
-        return existing_urls
-
     def _update_data_file(
         self,
         folder_name: Union[str, Tuple[str, ...]],

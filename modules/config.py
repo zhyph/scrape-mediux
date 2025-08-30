@@ -237,11 +237,6 @@ class ConfigManager:
             help="Directory to configuration file, defaults to /config",
             default=os.environ.get("CONFIG_PATH", "/config"),
         )
-        parser.add_argument(
-            "--root_folder",
-            type=str,
-            help="Root folder(s) containing subfolders with media IDs. Can be a single path or multiple paths separated by commas.",
-        )
 
         # API and authentication
         parser.add_argument("--api_key", type=str, help="TMDB API key")
@@ -278,11 +273,18 @@ class ConfigManager:
             help="List of Plex library names to scan (optional, enables Plex API mode if provided)",
         )
 
-        # Processing options
+        # DEPRECATED - Keep for error message
+        parser.add_argument(
+            "--root_folder",
+            type=str,
+            help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
+        )
+
+        # DEPRECATED - Keep for error message
         parser.add_argument(
             "--folders",
             nargs="*",
-            help="Specific sub-folders within root_folder(s) to process (optional)",
+            help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
         )
         parser.add_argument(
             "--headless",
@@ -394,6 +396,16 @@ class ConfigManager:
         parser = self.create_argument_parser()
         args = parser.parse_args()
 
+        # Check for deprecated --root_folder and --folders arguments
+        if args.root_folder is not None or args.folders is not None:
+            self.logger.error(
+                "❌ The --root_folder and --folders arguments are no longer supported. Please use Plex configuration instead."
+            )
+            self.logger.info(
+                "🔧 To set up Plex mode, configure 'plex_url', 'plex_token', and 'plex_libraries' in your config.json or CLI."
+            )
+            exit(1)
+
         # Load file configuration
         try:
             file_config = self.load_config_file(args.config_path)
@@ -401,23 +413,9 @@ class ConfigManager:
             self.logger.error(f"Failed to load configuration: {e}")
             raise
 
-        # Process root_folder (can be comma-separated string or list)
-        root_folder = self._resolve_config_value(
-            arg_val=args.root_folder,
-            env_var_name="ROOT_FOLDER",
-            config_key="root_folder",
-            file_config=file_config,
-        )
-
-        if isinstance(root_folder, str):
-            root_folder = [rf.strip() for rf in root_folder.split(",") if rf.strip()]
-        elif root_folder is None:
-            root_folder = []
-
         # Build complete configuration dictionary
         app_config = {
             "config_path": args.config_path,
-            "root_folder": root_folder,
             "api_key": self._resolve_config_value(
                 arg_val=args.api_key,
                 env_var_name="API_KEY",
@@ -486,14 +484,6 @@ class ConfigManager:
                 file_config=file_config,
                 is_list=True,
                 default_val=[],
-            ),
-            "selected_folders": self._resolve_config_value(
-                arg_val=args.folders,
-                env_var_name="FOLDERS",
-                config_key="folders",
-                file_config=file_config,
-                default_val=[],
-                is_list=True,
             ),
             "headless": self._resolve_config_value(
                 arg_val=args.headless,

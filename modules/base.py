@@ -221,6 +221,8 @@ class WebAutomationConstants:
 
     # Timeout constants (in seconds)
     PAGE_LOAD_TIMEOUT = 300  # 5 minutes
+    SCRIPT_TIMEOUT = 60  # Script execution timeout
+    IMPLICIT_WAIT_TIMEOUT = 5  # Implicit element wait timeout
     ELEMENT_WAIT_TIMEOUT_SHORT = 5  # Quick element checks
     ELEMENT_WAIT_TIMEOUT_MEDIUM = 10  # Standard interactions
     ELEMENT_WAIT_TIMEOUT_LONG = 20  # Complex operations

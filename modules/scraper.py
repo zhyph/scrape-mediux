@@ -8,11 +8,18 @@ and screenshot capabilities for the Mediux scraper.
 import logging
 import os
 import re
+import signal
+import socket
+import subprocess
 import time
 from typing import List, Optional, Tuple
 
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchDriverException,
+    SessionNotCreatedException,
+)
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
@@ -29,11 +36,214 @@ logger = logging.getLogger(__name__)
 
 
 class WebDriverManager:
-    """Manages WebDriver initialization and lifecycle."""
+    """Manages WebDriver initialization and lifecycle with enhanced stability."""
 
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path
         self.logger = logging.getLogger(__name__)
+        self.current_driver = None
+
+    def _find_free_port(self) -> int:
+        """Find a free port for Chrome debugging."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            s.listen(1)
+            port = s.getsockname()[1]
+        return port
+
+    def cleanup_orphaned_webdriver_processes(
+        self, target_pid: Optional[int] = None
+    ) -> None:
+        """
+        Conservative cleanup focusing only on WebDriver-related processes.
+        Avoids killing regular user Chrome browser instances.
+
+        Args:
+            target_pid: Optional specific process ID to clean up (for Windows compatibility)
+        """
+        if target_pid is not None:
+            # Windows-compatible specific PID cleanup
+            try:
+                os.kill(target_pid, signal.SIGTERM)
+                time.sleep(0.2)
+                try:
+                    os.kill(target_pid, signal.SIGKILL)  # Force kill if needed
+                except ProcessLookupError:
+                    pass  # Process already terminated
+                self.logger.debug(f"Cleaned up specific process PID: {target_pid}")
+            except OSError as e:
+                self.logger.debug(
+                    f"Process {target_pid} already terminated or inaccessible: {e}"
+                )
+            return
+
+        try:
+            self.logger.debug("Performing conservative WebDriver process cleanup...")
+
+            # Only kill chromedriver processes - these are definitely WebDriver-related
+            chromedriver_processes = subprocess.run(
+                ["pgrep", "-f", "chromedriver"], capture_output=True, text=True
+            )
+
+            chromedriver_killed = 0
+            if chromedriver_processes.stdout:
+                driver_pids = chromedriver_processes.stdout.strip().split("\n")
+                for pid in driver_pids:
+                    if not pid.strip():
+                        continue
+                    try:
+                        pid_int = int(pid.strip())
+                        # Verify it's actually chromedriver before killing
+                        try:
+                            process_cmdline = subprocess.run(
+                                ["ps", "-p", str(pid_int), "-o", "comm="],
+                                capture_output=True,
+                                text=True,
+                                timeout=2,
+                            )
+                            if process_cmdline.stdout.strip() == "chromedriver":
+                                os.kill(pid_int, signal.SIGTERM)
+                                chromedriver_killed += 1
+                                time.sleep(0.1)  # Brief delay between kills
+                        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                            # If we can't verify, be conservative and skip
+                            continue
+                    except (ProcessLookupError, ValueError, OSError) as e:
+                        if "No such process" not in str(e):
+                            self.logger.warning(
+                                f"Error killing chromedriver process {pid}: {e}"
+                            )
+
+            # Selectively clean ONLY WebDriver-controlled Chrome instances
+            # (those with --remote-debugging-port flag)
+            chrome_webdriver_processes = subprocess.run(
+                ["pgrep", "-f", "--remote-debugging-port"],
+                capture_output=True,
+                text=True,
+            )
+
+            chrome_killed = 0
+            if chrome_webdriver_processes.stdout:
+                chrome_pids = chrome_webdriver_processes.stdout.strip().split("\n")
+                for pid in chrome_pids:
+                    if not pid.strip():
+                        continue
+                    try:
+                        pid_int = int(pid.strip())
+                        # Verify this Chrome instance has WebDriver flags before killing
+                        try:
+                            process_cmdline = subprocess.run(
+                                ["ps", "-p", str(pid_int), "-o", "args="],
+                                capture_output=True,
+                                text=True,
+                                timeout=2,
+                            )
+                            if "--remote-debugging-port" in process_cmdline.stdout:
+                                os.kill(pid_int, signal.SIGTERM)
+                                chrome_killed += 1
+                                time.sleep(0.1)
+                        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                            continue
+                    except (ProcessLookupError, ValueError, OSError) as e:
+                        if "No such process" not in str(e):
+                            self.logger.warning(
+                                f"Error killing WebDriver Chrome process {pid}: {e}"
+                            )
+
+            time.sleep(0.5)  # Allow processes time to terminate
+            if chromedriver_killed > 0 or chrome_killed > 0:
+                self.logger.debug(
+                    f"Cleaned up {chromedriver_killed} chromedriver and {chrome_killed} WebDriver Chrome processes"
+                )
+            else:
+                self.logger.debug("No orphaned WebDriver processes found to clean up")
+
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as e:
+            # This is normal on systems without pgrep (like Windows) or other OS differences
+            self.logger.warning(
+                f"Process cleanup not fully available on this system: {e}"
+            )
+            self.logger.info("This is normal and doesn't affect functionality")
+
+    def setup_chrome_options(
+        self,
+        headless: bool,
+        profile_path: Optional[str] = None,
+        port: Optional[int] = None,
+    ) -> Options:
+        """Set up Chrome options optimized for stability and long-running operations."""
+        options = Options()
+
+        # Essential stability flags
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-web-security")
+        options.add_argument("--disable-features=VizDisplayCompositor")
+        options.add_argument("--disable-ipc-flooding-protection")
+        options.add_argument("--disable-popup-blocking")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-plugins")
+        options.add_argument("--disable-images")  # Speed up page loads
+        options.add_argument("--disable-javascript-harness")
+        options.add_argument("--disable-component-extensions-with-background-pages")
+        options.add_argument("--disable-background-timer-throttling")
+        options.add_argument("--disable-backgrounding-occluded-windows")
+        options.add_argument("--disable-renderer-backgrounding")
+        options.add_argument("--memory-pressure-off")
+        options.add_argument("--disable-low-end-device-mode")
+        options.add_argument("--no-first-run")
+        options.add_argument("--no-default-browser-check")
+        options.add_argument("--no-pings")
+        options.add_argument("--disable-background-networking")
+        options.add_argument("--disable-sync")
+        options.add_argument("--disable-translate")
+        options.add_argument("--hide-scrollbars")
+        options.add_argument("--metrics-recording-only")
+        options.add_argument("--mute-audio")
+        options.add_argument("--no-crash-upload")
+        options.add_argument("--disable-hang-monitor")
+        options.add_argument("--disable-prompt-on-repost")
+        options.add_argument("--disable-component-update")
+        options.add_argument("--disable-domain-reliability")
+        options.add_argument("--disable-client-side-phishing-detection")
+        options.add_argument("--disable-component-extensions-with-background-pages")
+
+        # Memory and resource management
+        options.add_argument("--max_old_space_size=4096")
+        options.add_argument("--memory-allocator=malloc")
+        options.add_argument("--max_new_space_size=2048")
+        options.add_argument(
+            "--js-flags=--max_old_space_size=8192,--max_new_space_size=4096"
+        )
+        options.add_argument("--disable-logging")
+        options.add_argument("--disable-logging-redirect")
+
+        # Performance optimizations
+        options.add_argument("--prerender=disabled")
+        options.add_argument("--dns-prefetch-disable")
+        options.add_argument("--disable-accelerated-2d-canvas")
+        options.add_argument("--accelerated-drawing=disabled")
+        options.add_argument("--disable-software-rasterizer")
+
+        # Headless and display settings
+        if headless:
+            options.add_argument("--headless=new")  # Use new headless mode
+            if port is None:
+                port = self._find_free_port()
+            options.add_argument(f"--remote-debugging-port={port}")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--start-maximized")
+
+        # Profile path
+        if profile_path:
+            options.add_argument(f"--user-data-dir={profile_path}")
+
+        # GPU settings (disable to prevent crashes)
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-gpu-compositing")
+        options.add_argument("--disable-gpu-rasterization")
+
+        return options
 
     def init_driver(
         self,
@@ -55,44 +265,96 @@ class WebDriverManager:
         Raises:
             Exception: If WebDriver initialization fails
         """
-        self.logger.debug("Initializing WebDriver...")
-        options = Options()
 
-        # Container-safe flags (required for Docker/non-root usage)
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-software-rasterizer")
+        # Clean up any existing processes before starting
+        self.cleanup_orphaned_webdriver_processes()
 
-        if headless:
-            options.add_argument("--headless")
-            options.add_argument(
-                f"--remote-debugging-port={WebAutomationConstants.CHROME_REMOTE_DEBUGGING_PORT}"
-            )
+        # Get a free port for debugging
+        debug_port = self._find_free_port()
 
-        if profile_path:
-            options.add_argument(f"--user-data-dir={profile_path}")
+        # Setup optimized Chrome options
+        options = self.setup_chrome_options(
+            headless=headless, profile_path=profile_path, port=debug_port
+        )
 
         try:
+            # Create WebDriver service
             if chromedriver_path:
-                driver = webdriver.Chrome(
-                    service=ChromeService(chromedriver_path), options=options
-                )
+                service = ChromeService(chromedriver_path)
             else:
                 from webdriver_manager.chrome import ChromeDriverManager
 
-                driver = webdriver.Chrome(
-                    service=ChromeService(ChromeDriverManager().install()),
-                    options=options,
+                service = ChromeService(ChromeDriverManager().install())
+
+            # Initialize driver with retries
+            max_retries = 3
+            driver = None
+            for attempt in range(max_retries):
+                try:
+                    driver = webdriver.Chrome(service=service, options=options)
+                    break
+                except (NoSuchDriverException, SessionNotCreatedException) as e:
+                    if attempt < max_retries - 1:
+                        self.logger.warning(
+                            f"WebDriver initialization attempt {attempt + 1} failed: {e}"
+                        )
+                        time.sleep(2)
+                        # Clean up and try again
+                        self.cleanup_orphaned_webdriver_processes()
+                        driver = None
+                        continue
+                    else:
+                        raise
+
+            # Ensure driver was created successfully
+            if driver is None:
+                raise RuntimeError(
+                    "Failed to create WebDriver after all retry attempts"
                 )
 
+            # Configure timeouts for stability
             driver.set_page_load_timeout(WebAutomationConstants.PAGE_LOAD_TIMEOUT)
-            self.logger.debug("WebDriver initialized successfully.")
+            driver.set_script_timeout(WebAutomationConstants.SCRIPT_TIMEOUT)
+            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
+
+            # Additional stability settings
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": """
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+                """
+                },
+            )
+
+            self.current_driver = driver
             return driver
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize WebDriver: {e}")
+            self.logger.error(f"Failed to initialize WebDriver after all retries: {e}")
+            # Final cleanup attempt
+            self.cleanup_orphaned_webdriver_processes()
             raise
+
+    def safe_quit_driver(self, driver: Optional[WebDriver] = None) -> None:
+        """Safely quit a WebDriver instance and clean up processes."""
+        target_driver = driver or self.current_driver
+
+        if target_driver is None:
+            return
+
+        try:
+            target_driver.quit()
+            self.logger.debug("WebDriver quit successfully")
+        except Exception as e:
+            self.logger.warning(f"Error during driver quit: {e}")
+        finally:
+            # Always perform cleanup
+            self.cleanup_orphaned_webdriver_processes()
+            if target_driver == self.current_driver:
+                self.current_driver = None
 
     def take_screenshot(self, driver: WebDriver, name: str) -> None:
         """
@@ -214,7 +476,7 @@ def initialize_and_login_driver(
     nickname,
     config_path=None,
 ):
-    """Initialize WebDriver and login to Mediux."""
+    """Initialize WebDriver and login to Mediux with enhanced stability."""
     webdriver_manager = WebDriverManager(config_path)
     driver = webdriver_manager.init_driver(
         headless=headless,
@@ -233,8 +495,8 @@ def initialize_and_login_driver(
         return driver
     except Exception as e:
         logger.error(f"Failed to login during driver re-initialization: {e}")
-        if driver:
-            driver.quit()
+        # Use safe quit to properly clean up
+        webdriver_manager.safe_quit_driver(driver)
         raise
 
 
@@ -522,6 +784,8 @@ class MediuxScraper:
 
         # Navigation errors should always raise exceptions (never cached)
         try:
+            # Simple health check - try to access driver property
+            _ = driver.current_url
             driver.get(url)
         except Exception as e:
             self.logger.error(f"An error occurred during driver.get({url}): {e}")
