@@ -27,15 +27,14 @@
   - [Usage (Docker)](#usage-docker)
     - [Docker Compose](#docker-compose)
     - [Running with Docker Compose](#running-with-docker-compose)
-  - [Legacy Use](#legacy-use)
-  <!--toc:end-->
+    <!--toc:end-->
 
 This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb, TVDB or TMDB IDs to find corresponding movies/shows. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
 
 ## Features
 
 - **Automatic login** to Mediux.
-- **Data scraping** from the Mediux website based on TMDB IDs retrieved via IMDb, TVDB or directly TMDB IDs.
+- **Data scraping** from the Mediux website based on TMDB IDs grabbed from Plex.
 - **Advanced caching system** with intelligent TTL-based cache management, memory limits, and configurable settings to avoid redundant API calls and optimize performance.
 - **Progress tracking** with detailed progress bars and real-time status updates.
 - **Extracts and saves** unique Mediux set URLs to a text file.
@@ -130,7 +129,7 @@ cp config.example.json config.json
 - **`plex_url`**: The URL of your Plex server (required).
 - **`plex_token`**: Your Plex API token (required).
 - **`plex_libraries`**: List of Plex library names to scan (required).
-- **`api_key`**: Your TMDB API Read Access Token. You can find this in your [TMDB account settings](https://www.themoviedb.org/settings/api).
+- **`api_key`**: **NOT REQUIRED ANYMORE, WILL ACT AS A FALLBACK** _Your TMDB API Read Access Token. You can find this in your [TMDB account settings](https://www.themoviedb.org/settings/api)_.
 - **`username`**: Your Mediux username used for logging into the Mediux website.
 - **`password`**: Your Mediux password used for logging into the Mediux website.
 - **`nickname`**: Your Mediux nickname, which is displayed after logging in.
@@ -256,7 +255,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--plex_url`: Plex server URL.
 - `--plex_token`: Plex API token.
 - `--plex_libraries`: List of Plex library names to scan.
-- `--api_key`: TMDB API Read Access Token (not API Key).
+- `--api_key`: **NOT REQUIRED ANYMORE, WILL ACT AS A FALLBACK** _TMDB API Read Access Token (not API Key)._
 - `--username`: Mediux username.
 - `--password`: Mediux password.
 - `--nickname`: Mediux nickname.
