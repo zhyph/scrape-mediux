@@ -10,7 +10,7 @@ import os
 import time
 
 from selenium.common.exceptions import TimeoutException
-from tqdm_loggable.auto import tqdm
+from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from urllib3.exceptions import ReadTimeoutError
 

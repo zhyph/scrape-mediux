@@ -4,7 +4,6 @@ webdriver-manager
 ruamel.yaml
 croniter
 tqdm
-tqdm-loggable
 plexapi
 colorama
 psutil
