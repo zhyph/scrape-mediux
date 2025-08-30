@@ -74,6 +74,7 @@ def main():
             "plex_url": app_settings.get("plex_url"),
             "plex_token": app_settings.get("plex_token"),
             "plex_libraries": app_settings.get("plex_libraries"),
+            "mediux_url": app_settings.get("mediux_url"),
             "disable_cache": app_settings.get("disable_cache", False),
             "clear_cache": app_settings.get("clear_cache", False),
             "cache_dir": app_settings.get(

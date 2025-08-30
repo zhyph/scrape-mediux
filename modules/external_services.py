@@ -53,7 +53,7 @@ class DiscordNotifier:
             response = session.post(
                 webhook_url,
                 json=payload,
-                timeout=WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM,
+                timeout=WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             )
             response.raise_for_status()
             self.logger.info("Discord notification sent successfully.")

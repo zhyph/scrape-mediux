@@ -8,9 +8,6 @@ and screenshot capabilities for the Mediux scraper.
 import logging
 import os
 import re
-import signal
-import socket
-import subprocess
 import time
 from typing import List, Optional, Tuple
 
@@ -43,133 +40,10 @@ class WebDriverManager:
         self.logger = logging.getLogger(__name__)
         self.current_driver = None
 
-    def _find_free_port(self) -> int:
-        """Find a free port for Chrome debugging."""
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            s.listen(1)
-            port = s.getsockname()[1]
-        return port
-
-    def cleanup_orphaned_webdriver_processes(
-        self, target_pid: Optional[int] = None
-    ) -> None:
-        """
-        Conservative cleanup focusing only on WebDriver-related processes.
-        Avoids killing regular user Chrome browser instances.
-
-        Args:
-            target_pid: Optional specific process ID to clean up (for Windows compatibility)
-        """
-        if target_pid is not None:
-            # Windows-compatible specific PID cleanup
-            try:
-                os.kill(target_pid, signal.SIGTERM)
-                time.sleep(0.2)
-                try:
-                    os.kill(target_pid, signal.SIGKILL)  # Force kill if needed
-                except ProcessLookupError:
-                    pass  # Process already terminated
-                self.logger.debug(f"Cleaned up specific process PID: {target_pid}")
-            except OSError as e:
-                self.logger.debug(
-                    f"Process {target_pid} already terminated or inaccessible: {e}"
-                )
-            return
-
-        try:
-            self.logger.debug("Performing conservative WebDriver process cleanup...")
-
-            # Only kill chromedriver processes - these are definitely WebDriver-related
-            chromedriver_processes = subprocess.run(
-                ["pgrep", "-f", "chromedriver"], capture_output=True, text=True
-            )
-
-            chromedriver_killed = 0
-            if chromedriver_processes.stdout:
-                driver_pids = chromedriver_processes.stdout.strip().split("\n")
-                for pid in driver_pids:
-                    if not pid.strip():
-                        continue
-                    try:
-                        pid_int = int(pid.strip())
-                        # Verify it's actually chromedriver before killing
-                        try:
-                            process_cmdline = subprocess.run(
-                                ["ps", "-p", str(pid_int), "-o", "comm="],
-                                capture_output=True,
-                                text=True,
-                                timeout=2,
-                            )
-                            if process_cmdline.stdout.strip() == "chromedriver":
-                                os.kill(pid_int, signal.SIGTERM)
-                                chromedriver_killed += 1
-                                time.sleep(0.1)  # Brief delay between kills
-                        except subprocess.SubprocessError:
-                            # If we can't verify, be conservative and skip
-                            continue
-                    except (ValueError, OSError) as e:
-                        if "No such process" not in str(e):
-                            self.logger.warning(
-                                f"Error killing chromedriver process {pid}: {e}"
-                            )
-
-            # Selectively clean ONLY WebDriver-controlled Chrome instances
-            # (those with --remote-debugging-port flag)
-            chrome_webdriver_processes = subprocess.run(
-                ["pgrep", "-f", "--remote-debugging-port"],
-                capture_output=True,
-                text=True,
-            )
-
-            chrome_killed = 0
-            if chrome_webdriver_processes.stdout:
-                chrome_pids = chrome_webdriver_processes.stdout.strip().split("\n")
-                for pid in chrome_pids:
-                    if not pid.strip():
-                        continue
-                    try:
-                        pid_int = int(pid.strip())
-                        # Verify this Chrome instance has WebDriver flags before killing
-                        try:
-                            process_cmdline = subprocess.run(
-                                ["ps", "-p", str(pid_int), "-o", "args="],
-                                capture_output=True,
-                                text=True,
-                                timeout=2,
-                            )
-                            if "--remote-debugging-port" in process_cmdline.stdout:
-                                os.kill(pid_int, signal.SIGTERM)
-                                chrome_killed += 1
-                                time.sleep(0.1)
-                        except subprocess.SubprocessError:
-                            continue
-                    except (ValueError, OSError) as e:
-                        if "No such process" not in str(e):
-                            self.logger.warning(
-                                f"Error killing WebDriver Chrome process {pid}: {e}"
-                            )
-
-            time.sleep(0.5)  # Allow processes time to terminate
-            if chromedriver_killed > 0 or chrome_killed > 0:
-                self.logger.debug(
-                    f"Cleaned up {chromedriver_killed} chromedriver and {chrome_killed} WebDriver Chrome processes"
-                )
-            else:
-                self.logger.debug("No orphaned WebDriver processes found to clean up")
-
-        except (subprocess.SubprocessError, OSError) as e:
-            # This is normal on systems without pgrep (like Windows) or other OS differences
-            self.logger.warning(
-                f"Process cleanup not fully available on this system: {e}"
-            )
-            self.logger.info("This is normal and doesn't affect functionality")
-
     def setup_chrome_options(
         self,
         headless: bool,
         profile_path: Optional[str] = None,
-        port: Optional[int] = None,
     ) -> Options:
         """Set up Chrome options optimized for stability and long-running operations."""
         options = Options()
@@ -228,9 +102,6 @@ class WebDriverManager:
         # Headless and display settings
         if headless:
             options.add_argument("--headless=new")  # Use new headless mode
-            if port is None:
-                port = self._find_free_port()
-            options.add_argument(f"--remote-debugging-port={port}")
             options.add_argument("--window-size=1920,1080")
             options.add_argument("--start-maximized")
 
@@ -266,15 +137,9 @@ class WebDriverManager:
             Exception: If WebDriver initialization fails
         """
 
-        # Clean up any existing processes before starting
-        self.cleanup_orphaned_webdriver_processes()
-
-        # Get a free port for debugging
-        debug_port = self._find_free_port()
-
         # Setup optimized Chrome options
         options = self.setup_chrome_options(
-            headless=headless, profile_path=profile_path, port=debug_port
+            headless=headless, profile_path=profile_path
         )
 
         try:
@@ -299,8 +164,6 @@ class WebDriverManager:
                             f"WebDriver initialization attempt {attempt + 1} failed: {e}"
                         )
                         time.sleep(2)
-                        # Clean up and try again
-                        self.cleanup_orphaned_webdriver_processes()
                         driver = None
                         continue
                     else:
@@ -334,8 +197,6 @@ class WebDriverManager:
 
         except Exception as e:
             self.logger.error(f"Failed to initialize WebDriver after all retries: {e}")
-            # Final cleanup attempt
-            self.cleanup_orphaned_webdriver_processes()
             raise
 
     def safe_quit_driver(self, driver: Optional[WebDriver] = None) -> None:
@@ -351,8 +212,6 @@ class WebDriverManager:
         except Exception as e:
             self.logger.warning(f"Error during driver quit: {e}")
         finally:
-            # Always perform cleanup
-            self.cleanup_orphaned_webdriver_processes()
             if target_driver == self.current_driver:
                 self.current_driver = None
 
@@ -413,7 +272,8 @@ class MediuxLoginManager:
         try:
             # Check if already logged in
             WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_SHORT,
             ).until(
                 EC.presence_of_element_located(
                     (By.XPATH, WebSelectors.get_user_button(nickname))
@@ -428,7 +288,8 @@ class MediuxLoginManager:
         try:
             # Click sign in button
             login_button = WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(
                 EC.presence_of_element_located((By.XPATH, WebSelectors.SIGN_IN_BUTTON))
             )
@@ -436,7 +297,8 @@ class MediuxLoginManager:
 
             # Wait for login form to load
             WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(EC.presence_of_element_located((By.ID, ":r0:-form-item")))
 
             # Enter credentials
@@ -451,7 +313,8 @@ class MediuxLoginManager:
 
             # Wait for login confirmation
             WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(
                 EC.presence_of_element_located(
                     (By.XPATH, WebSelectors.get_user_button(nickname))
@@ -528,8 +391,13 @@ class MediuxScraper:
                     f"Waiting for update completion for {media_type} {tmdb_id}..."
                 )
 
+                print(
+                    f"Update: {len(driver.find_elements(By.XPATH, update_toast_xpath)) == 0}, Success: {len(driver.find_elements(By.XPATH, success_toast_xpath)) > 0}"
+                )
+
                 WebDriverWait(
-                    driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT
+                    driver,
+                    WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
                 ).until(
                     lambda d: (
                         len(d.find_elements(By.XPATH, update_toast_xpath)) == 0
@@ -547,7 +415,9 @@ class MediuxScraper:
                         f"Update process completed for {media_type} {tmdb_id}"
                     )
 
-                time.sleep(WebAutomationConstants.BRIEF_DELAY)
+                # Only sleep briefly if update was in progress
+                if update_elements:
+                    time.sleep(WebAutomationConstants.BRIEF_DELAY)
             else:
                 if success_elements:
                     self.logger.debug(
@@ -587,7 +457,8 @@ class MediuxScraper:
                 )
 
                 WebDriverWait(
-                    driver, WebAutomationConstants.PROCESS_WAIT_TIMEOUT
+                    driver,
+                    WebAutomationConstants.PROCESS_WAIT_TIMEOUT,
                 ).until(
                     lambda d: len(d.find_elements(By.XPATH, refresh_spinner_xpath)) == 0
                 )
@@ -627,7 +498,8 @@ class MediuxScraper:
 
         try:
             all_yaml_buttons = WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_MEDIUM
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(EC.presence_of_all_elements_located((By.XPATH, yaml_xpath)))
         except TimeoutException:
             self.logger.warning("No YAML buttons found on the page.")
@@ -723,6 +595,7 @@ class MediuxScraper:
         retry_on_yaml_failure: bool = False,
         preferred_users: Optional[List[str]] = None,
         excluded_users: Optional[List[str]] = None,
+        direct_url: Optional[str] = None,
     ) -> str:
         """
         Scrape YAML data from Mediux page with intelligent caching.
@@ -743,9 +616,17 @@ class MediuxScraper:
             f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}"
         )
 
-        url, updating_text, success_text = self.get_media_url_and_texts(
-            media_type, tmdb_id
-        )
+        # Use direct URL if provided, otherwise construct from TMDB ID
+        if direct_url:
+            url = direct_url
+            # Use default updating/success texts (assuming movie, but will be detected)
+            updating_text = MediuxConfig.MOVIE_UPDATING_TEXT
+            success_text = MediuxConfig.MOVIE_UPDATE_SUCCESS
+            self.logger.info(f"Using direct URL: {direct_url}")
+        else:
+            url, updating_text, success_text = self.get_media_url_and_texts(
+                media_type, tmdb_id
+            )
 
         # Navigation errors should always raise exceptions (never cached)
         try:
@@ -758,7 +639,7 @@ class MediuxScraper:
 
         self.logger.debug(f"Navigated to URL: {url}")
         yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
-        time.sleep(WebAutomationConstants.STANDARD_DELAY)
+        time.sleep(WebAutomationConstants.BRIEF_DELAY)
 
         self.wait_for_update_completion(
             driver, updating_text, success_text, media_type, tmdb_id
@@ -785,10 +666,12 @@ class MediuxScraper:
             self.logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
 
             yaml_element = WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(EC.presence_of_element_located((By.XPATH, "//code")))
             WebDriverWait(
-                driver, WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_LONG
+                driver,
+                WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             ).until(
                 lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
             )
@@ -817,7 +700,7 @@ class MediuxScraper:
                 )
                 driver.refresh()
                 self.logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
-                time.sleep(WebAutomationConstants.STANDARD_DELAY)
+                time.sleep(WebAutomationConstants.BRIEF_DELAY)
                 # Recursive call for retry - do not cache intermediate results
                 return self.scrape_mediux(
                     driver=driver,

@@ -261,12 +261,14 @@ class MediaProcessingPipeline:
         tvdb_id_for_tv,
         fixed_titles_list,
         safe_append,
+        config,
     ):
         """Scrape Mediux data and process YAML structure for TV shows."""
         # Scrape Mediux
         from modules.scraper import MediuxScraper
 
         scraper = MediuxScraper()
+
         new_raw_yaml = scraper.scrape_mediux(
             driver=driver,
             tmdb_id=tmdb_id,
@@ -274,6 +276,7 @@ class MediaProcessingPipeline:
             retry_on_yaml_failure=retry_on_yaml_failure,
             preferred_users=preferred_users,
             excluded_users=excluded_users,
+            direct_url=getattr(config, "mediux_url", None),
         )
 
         if not new_raw_yaml:
@@ -705,6 +708,7 @@ def process_single_media_item(
         tvdb_id_for_tv=tvdb_id_for_tv,
         fixed_titles_list=fixed_titles_list,
         safe_append=safe_append,
+        config=config,
     )
 
     if not new_raw_yaml:

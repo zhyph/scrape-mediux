@@ -273,6 +273,13 @@ class ConfigManager:
             help="List of Plex library names to scan (optional, enables Plex API mode if provided)",
         )
 
+        # Direct Mediux URL bypass
+        parser.add_argument(
+            "--mediux_url",
+            type=str,
+            help="Direct Mediux URL to scrape (optional, bypasses Plex library discovery)",
+        )
+
         # DEPRECATED - Keep for error message
         parser.add_argument(
             "--root_folder",
@@ -484,6 +491,12 @@ class ConfigManager:
                 file_config=file_config,
                 is_list=True,
                 default_val=[],
+            ),
+            "mediux_url": self._resolve_config_value(
+                arg_val=args.mediux_url,
+                env_var_name="MEDIUX_URL",
+                config_key="mediux_url",
+                file_config=file_config,
             ),
             "headless": self._resolve_config_value(
                 arg_val=args.headless,

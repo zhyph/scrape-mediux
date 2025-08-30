@@ -28,6 +28,45 @@ is_interactive = sys.stdout.isatty() and sys.stderr.isatty()
 logger = logging.getLogger(__name__)
 
 
+def parse_mediux_url(mediux_url: str) -> tuple:
+    """
+    Parse a Mediux URL and extract media information.
+
+    Args:
+        mediux_url: Mediux URL in format https://mediux.pro/shows|movies/id
+
+    Returns:
+        Tuple of (media_id, media_name, source, media_type) or raises ValueError
+
+    Raises:
+        ValueError: If URL format is invalid
+    """
+    from urllib.parse import urlparse
+
+    parsed_url = urlparse(mediux_url)
+    path_parts = parsed_url.path.strip("/").split("/")
+
+    # Mediux URL structure: /shows|movies/id
+    if len(path_parts) != 2:
+        raise ValueError(
+            f"Invalid Mediux URL format: {mediux_url}. Expected: https://mediux.pro/movies/12345 or https://mediux.pro/shows/67890"
+        )
+
+    media_type_from_url = path_parts[0]
+    media_id = path_parts[1]
+
+    # Map to standardized media type
+    if "tv" in media_type_from_url.lower() or "show" in media_type_from_url.lower():
+        media_type = "tv"
+    else:
+        media_type = "movie"
+
+    # Use placeholder title - will be resolved during processing
+    media_name = f"Mediux {media_type.title()} ID {media_id}"
+
+    return (media_id, media_name, "tmdb_id", media_type)
+
+
 def run(
     *,
     api_key,
@@ -51,6 +90,7 @@ def run(
     plex_url=None,
     plex_token=None,
     plex_libraries=None,
+    mediux_url=None,
     disable_cache=False,
     clear_cache=False,
     cache_dir=FileSystemConstants.OUTPUT_DIR_DEFAULT,
@@ -137,32 +177,52 @@ def run(
 
     # Phase 2: Media Discovery
     logger.info(f"\n{separator}\n🔍 MEDIA DISCOVERY\n{separator}")
-    logger.info("👤 Scanning for media IDs...")
 
-    from modules.media_discovery import get_media_ids
+    # Check for direct Mediux URL bypass
+    if mediux_url:
+        logger.info("🎯 Direct Mediux URL provided - bypassing Plex library discovery")
+        logger.info(f"📌 Target URL: {mediux_url}")
 
-    try:
-        media_ids_to_process, folder_map_for_media = get_media_ids(
-            plex_url=plex_url,
-            plex_token=plex_token,
-            plex_libraries=plex_libraries,
-        )
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        exit(1)
-    except Exception as e:
-        logger.error(f"Failed to retrieve media IDs: {e}")
-        logger.info("Please check your Plex configuration and try again.")
-        exit(1)
+        try:
+            # Extract media ID and info from URL using helper function
+            media_id, title, source, media_type = parse_mediux_url(mediux_url)
 
-    if not media_ids_to_process or len(media_ids_to_process) == 0:
-        logger.error("No media items found. Please check your Plex configuration.")
-        logger.info(
-            "Ensure 'plex_url', 'plex_token', and 'plex_libraries' are correctly configured."
-        )
-        exit(1)
+            # Create single media item for processing
+            media_ids_to_process = [(media_id, title, source, media_type)]
+            folder_map_for_media = {media_id: [("Direct URL", media_type)]}
 
-    logger.info(f"✅ Found {len(media_ids_to_process)} media items to process")
+            logger.info(f"📋 Created media item: ID={media_id}, Type={media_type}")
+            logger.info(f"📋 Will navigate directly to: {mediux_url}")
+        except ValueError as e:
+            logger.error(str(e))
+            exit(1)
+    else:
+        logger.info("👤 Scanning for media IDs...")
+
+        from modules.media_discovery import get_media_ids
+
+        try:
+            media_ids_to_process, folder_map_for_media = get_media_ids(
+                plex_url=plex_url,
+                plex_token=plex_token,
+                plex_libraries=plex_libraries,
+            )
+        except ValueError as e:
+            logger.error(f"Configuration error: {e}")
+            exit(1)
+        except Exception as e:
+            logger.error(f"Failed to retrieve media IDs: {e}")
+            logger.info("Please check your Plex configuration and try again.")
+            exit(1)
+
+        if not media_ids_to_process or len(media_ids_to_process) == 0:
+            logger.error("No media items found. Please check your Plex configuration.")
+            logger.info(
+                "Ensure 'plex_url', 'plex_token', and 'plex_libraries' are correctly configured."
+            )
+            exit(1)
+
+        logger.info(f"✅ Found {len(media_ids_to_process)} media items to process")
     if remove_paths:
         logger.info(f"👤 YAML filtering enabled for {len(remove_paths)} path(s)")
 
@@ -181,6 +241,7 @@ def run(
         excluded_users=excluded_users,
         disable_season_fix=disable_season_fix,
         remove_paths=remove_paths,
+        mediux_url=mediux_url,
     )
 
     # Phase 3: WebDriver Initialization

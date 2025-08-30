@@ -147,17 +147,16 @@ class WebAutomationConstants:
     """
 
     # Timeout constants (in seconds)
-    PAGE_LOAD_TIMEOUT = 300  # 5 minutes
-    SCRIPT_TIMEOUT = 60  # Script execution timeout
-    IMPLICIT_WAIT_TIMEOUT = 5  # Implicit element wait timeout
-    ELEMENT_WAIT_TIMEOUT_SHORT = 5  # Quick element checks
-    ELEMENT_WAIT_TIMEOUT_MEDIUM = 10  # Standard interactions
-    ELEMENT_WAIT_TIMEOUT_LONG = 20  # Complex operations
-    PROCESS_WAIT_TIMEOUT = 30  # Long-running processes
+    PAGE_LOAD_TIMEOUT = 300
+    SCRIPT_TIMEOUT = 60
+    IMPLICIT_WAIT_TIMEOUT = 5
+    ELEMENT_WAIT_TIMEOUT_SHORT = 1
+    ELEMENT_WAIT_TIMEOUT_STANDARD = 5
+    PROCESS_WAIT_TIMEOUT = 10
 
     # Sleep delays (in seconds)
-    BRIEF_DELAY = 1  # Brief pauses between operations
-    STANDARD_DELAY = 5  # Standard delays (page loads, refreshes)
+    BRIEF_DELAY = 1
+    STANDARD_DELAY = 5
 
 
 class MediuxConfig:
@@ -244,6 +243,7 @@ class MediaProcessingConfig:
         excluded_users: Optional[list] = None,
         disable_season_fix: bool = False,
         remove_paths: Optional[list] = None,
+        mediux_url: Optional[str] = None,
     ):
         """Initialize media processing configuration.
 
@@ -257,6 +257,7 @@ class MediaProcessingConfig:
             excluded_users: List of excluded user names
             disable_season_fix: Whether to disable automatic season fix
             remove_paths: List of YAML paths to remove during filtering
+            mediux_url: Direct Mediux URL to scrape (optional, bypasses Plex library discovery)
         """
         self.api_key = api_key
         self.sonarr_api_key = sonarr_api_key
@@ -267,4 +268,5 @@ class MediaProcessingConfig:
         self.excluded_users = excluded_users or []
         self.disable_season_fix = disable_season_fix
         self.remove_paths = remove_paths or []
+        self.mediux_url = mediux_url
         self.logger = logging.getLogger(self.__class__.__module__)
