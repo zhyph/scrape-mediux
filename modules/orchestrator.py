@@ -7,6 +7,7 @@ including setup, media processing, and cleanup.
 
 import logging
 import os
+import sys
 import time
 
 from selenium.common.exceptions import TimeoutException
@@ -19,6 +20,10 @@ from modules.intelligent_cache import (
     create_cache_manager_from_config,
 )
 from modules.base import ScraperContext, FileSystemConstants
+
+# Detect if running in an interactive terminal for progress bar control
+is_interactive = sys.stdout.isatty() and sys.stderr.isatty()
+
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +234,11 @@ def run(
                 media_name,
                 external_source_type,
                 media_type_from_plex,
-            ) in tqdm(media_ids_to_process, desc="Processing media"):
+            ) in tqdm(
+                media_ids_to_process,
+                desc="Processing media",
+                disable=not is_interactive,
+            ):
                 try:
                     from modules.media_processing import process_single_media_item
 
