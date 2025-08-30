@@ -105,10 +105,10 @@ class WebDriverManager:
                                 os.kill(pid_int, signal.SIGTERM)
                                 chromedriver_killed += 1
                                 time.sleep(0.1)  # Brief delay between kills
-                        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                        except subprocess.SubprocessError:
                             # If we can't verify, be conservative and skip
                             continue
-                    except (ProcessLookupError, ValueError, OSError) as e:
+                    except (ValueError, OSError) as e:
                         if "No such process" not in str(e):
                             self.logger.warning(
                                 f"Error killing chromedriver process {pid}: {e}"
@@ -142,9 +142,9 @@ class WebDriverManager:
                                 os.kill(pid_int, signal.SIGTERM)
                                 chrome_killed += 1
                                 time.sleep(0.1)
-                        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                        except subprocess.SubprocessError:
                             continue
-                    except (ProcessLookupError, ValueError, OSError) as e:
+                    except (ValueError, OSError) as e:
                         if "No such process" not in str(e):
                             self.logger.warning(
                                 f"Error killing WebDriver Chrome process {pid}: {e}"
@@ -158,7 +158,7 @@ class WebDriverManager:
             else:
                 self.logger.debug("No orphaned WebDriver processes found to clean up")
 
-        except (FileNotFoundError, subprocess.SubprocessError, OSError) as e:
+        except (subprocess.SubprocessError, OSError) as e:
             # This is normal on systems without pgrep (like Windows) or other OS differences
             self.logger.warning(
                 f"Process cleanup not fully available on this system: {e}"
@@ -466,47 +466,12 @@ class MediuxLoginManager:
             raise
 
 
-def initialize_and_login_driver(
-    *,
-    headless,
-    profile_path,
-    chromedriver_path,
-    username,
-    password,
-    nickname,
-    config_path=None,
-):
-    """Initialize WebDriver and login to Mediux with enhanced stability."""
-    webdriver_manager = WebDriverManager(config_path)
-    driver = webdriver_manager.init_driver(
-        headless=headless,
-        profile_path=profile_path,
-        chromedriver_path=chromedriver_path,
-    )
-
-    login_manager = MediuxLoginManager(webdriver_manager)
-    try:
-        login_manager.login(
-            driver=driver,
-            username=username,
-            password=password,
-            nickname=nickname,
-        )
-        return driver
-    except Exception as e:
-        logger.error(f"Failed to login during driver re-initialization: {e}")
-        # Use safe quit to properly clean up
-        webdriver_manager.safe_quit_driver(driver)
-        raise
-
-
 class MediuxScraper:
     """Handles Mediux page scraping and YAML extraction."""
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.cache_manager = get_cache_manager()
-        self.page_load_cache = {}  # Simple in-memory cache for page load states
 
     def get_media_url_and_texts(
         self, media_type: str, tmdb_id: str

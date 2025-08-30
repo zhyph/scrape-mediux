@@ -83,18 +83,6 @@ class ScraperContext:
         self.fixed_titles_list.clear()
         self.clear_driver()
 
-    def get_state_summary(self) -> dict:
-        """Get summary of current state for logging."""
-        return {
-            "new_data_keys": list(self.new_data.keys()) if self.new_data else [],
-            "cache_entries": len(self.cache),
-            "folder_bulk_data_keys": (
-                list(self.folder_bulk_data.keys()) if self.folder_bulk_data else []
-            ),
-            "updated_titles": len(self.updated_titles_list),
-            "fixed_titles": len(self.fixed_titles_list),
-        }
-
 
 class YAMLService:
     """Centralized service for YAML operations.
@@ -131,23 +119,6 @@ class YAMLService:
             logger.error(f"Failed to parse YAML string: {e}")
             return None
 
-    def load_from_file(self, file_path: str) -> Optional[dict]:
-        """Load YAML from file.
-
-        Args:
-            file_path: Path to YAML file
-
-        Returns:
-            Parsed YAML as dictionary or None if loading fails
-        """
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            return self.load_from_string(content)
-        except Exception as e:
-            logger.error(f"Failed to load YAML from file {file_path}: {e}")
-            return None
-
     def dump_to_string(self, data: dict) -> Optional[str]:
         """Dump data to YAML string.
 
@@ -165,50 +136,6 @@ class YAMLService:
             return string_stream.getvalue()
         except Exception as e:
             logger.error(f"Failed to dump data to YAML string: {e}")
-            return None
-
-    def dump_to_file(self, data: dict, file_path: str) -> bool:
-        """Dump data to YAML file.
-
-        Args:
-            data: Data to serialize
-            file_path: Path to output file
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            yaml_string = self.dump_to_string(data)
-            if yaml_string is not None:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(yaml_string)
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Failed to dump data to YAML file {file_path}: {e}")
-            return False
-
-    def format_yaml_string(self, data: dict) -> Optional[str]:
-        """Format data to properly formatted YAML string with consistent formatting.
-
-        Args:
-            data: Data to format
-
-        Returns:
-            Formatted YAML string or None if formatting fails
-        """
-        try:
-            yaml_string = self.dump_to_string(data)
-            if yaml_string:
-                # Apply additional formatting rules
-                import re
-
-                # Remove trailing spaces and normalize line endings
-                yaml_string = re.sub(r"[ \t]+$", "", yaml_string, flags=re.MULTILINE)
-                return yaml_string
-            return None
-        except Exception as e:
-            logger.error(f"Failed to format YAML string: {e}")
             return None
 
 
@@ -231,9 +158,6 @@ class WebAutomationConstants:
     # Sleep delays (in seconds)
     BRIEF_DELAY = 1  # Brief pauses between operations
     STANDARD_DELAY = 5  # Standard delays (page loads, refreshes)
-
-    # Chrome options
-    CHROME_REMOTE_DEBUGGING_PORT = 9222
 
 
 class MediuxConfig:
@@ -296,51 +220,10 @@ class WebSelectors:
     SIGN_IN_BUTTON = "//button[contains(text(), 'Sign In')]"
     USER_BUTTON = "//button[contains(text(), '{nickname}')]"
 
-    # Form selectors
-    LOGIN_USERNAME_FIELD = "//*[@id=':r0:-form-item']"
-    LOGIN_PASSWORD_FIELD = "//*[@id=':r1:-form-item']"
-    LOGIN_FORM_SUBMIT = "//form/button"
-
-    # Content and data selectors
-    YAML_BUTTON = "//button[span[contains(text(), 'YAML')]]"
-    YAML_CONTENT = "//code"
-    REFRESH_SPINNER = "//svg[contains(@class, 'lucide-refresh-cw') and contains(@class, 'animate-spin')]"
-
-    # Toast notification selectors
-    UPDATE_TOAST = (
-        "//li[contains(@class, 'toast')]//div[contains(text(), '{updating_text}')]"
-    )
-    SUCCESS_TOAST = (
-        "//li[contains(@class, 'toast')]//div[contains(text(), '{success_text}')]"
-    )
-
-    # User and link selectors
-    USER_LINK_PATTERN = "/user/{username}"
-
     @classmethod
     def get_user_button(cls, nickname: str) -> str:
         """Get XPath for user button with specific nickname."""
         return cls.USER_BUTTON.format(nickname=nickname)
-
-    @classmethod
-    def get_update_toast(cls, updating_text: str) -> str:
-        """Get XPath for update toast with specific text."""
-        return cls.UPDATE_TOAST.format(updating_text=updating_text)
-
-    @classmethod
-    def get_success_toast(cls, success_text: str) -> str:
-        """Get XPath for success toast with specific text."""
-        return cls.SUCCESS_TOAST.format(success_text=success_text)
-
-
-class BaseService:
-    """Base class for all service classes.
-
-    Provides common functionality like logging that all services need.
-    """
-
-    def __init__(self):
-        self.logger = logging.getLogger(self.__class__.__module__)
 
 
 class MediaProcessingConfig:

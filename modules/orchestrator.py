@@ -107,13 +107,6 @@ def run(
 
         # Create a dummy intelligent cache manager that does nothing
         class DummyCacheManager:
-            def load_cache(self):
-                """Load cache from file. Intentionally empty when caching is disabled."""
-                pass
-
-            def save_cache(self):
-                """Save cache to file. Intentionally empty when caching is disabled."""
-                pass
 
             def get_cache_stats(self):
                 """Get cache statistics. Returns empty dict when caching is disabled."""
@@ -127,11 +120,7 @@ def run(
         from modules.intelligent_cache import get_cache_manager
 
         intelligent_cache_manager = get_cache_manager()
-        intelligent_cache_manager.load_cache(
-            cache_manager.get_cache_file_path(
-                FileSystemConstants.INTELLIGENT_CACHE_FILENAME
-            )
-        )
+        # Cache loading removed - load_cache method was unused
 
     # Handle Plex libraries - load data for Plex library names
     if plex_libraries:
@@ -226,8 +215,6 @@ def run(
         logger.info(f"👤 Processing {len(media_ids_to_process)} media items...")
 
         with logging_redirect_tqdm():
-            processed_count = 0
-            health_check_interval = 25  # Check every 25 items during long runs
 
             for (
                 media_id_from_folder,
@@ -251,7 +238,6 @@ def run(
                         media_type_from_plex=media_type_from_plex,
                         context=context,
                     )
-                    processed_count += 1
 
                 except (ReadTimeoutError, TimeoutException):
                     logger.error(

@@ -23,7 +23,6 @@ class BulkDataManager(CachedService):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
         self.yaml_service = yaml_service if yaml_service else YAMLService()
-        self.file_cache = {}  # Cache for file modification times and content
 
     def load_bulk_data(
         self, bulk_data_file: str, only_set_urls: bool = False

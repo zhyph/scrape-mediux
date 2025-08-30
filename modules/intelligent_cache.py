@@ -5,7 +5,6 @@ This module provides smart caching capabilities with time-based expiration,
 memory limits, and different strategies for various types of data.
 """
 
-import hashlib
 import logging
 import os
 import pickle
@@ -68,14 +67,6 @@ class IntelligentCache:
         self.lock = threading.RLock()
         self.stats = {"hits": 0, "misses": 0, "evictions": 0, "size": 0}
         self._operation_count = 0
-        self._last_memory_cleanup = time.time()
-
-    def _generate_key(self, *args, **kwargs) -> str:
-        """Generate a cache key from arguments."""
-        key_parts = [str(arg) for arg in args]
-        key_parts.extend(f"{k}:{v}" for k, v in sorted(kwargs.items()))
-        key_string = "|".join(key_parts)
-        return hashlib.md5(key_string.encode()).hexdigest()
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value from cache with statistics tracking."""
@@ -379,93 +370,6 @@ class NamespaceCache:
 
                 self.logger.debug(f"Cache save error details: {traceback.format_exc()}")
 
-    def load_from_file(self, filepath: str):
-        """Load cache data from a pickle file."""
-        if not os.path.exists(filepath):
-            self.logger.info(f"Intelligent cache file not found: {filepath}")
-            return
-
-        try:
-            with open(filepath, "rb") as f:
-                cache_data = pickle.load(f)
-
-            with self.lock:
-                for name, data in cache_data.items():
-                    if name not in self.namespaces:
-                        # Create namespace if it doesn't exist
-                        cache = IntelligentCache(
-                            max_size=data.get("max_size", 500),
-                            default_ttl=data.get("default_ttl", 3600),
-                        )
-                        self.namespaces[name] = cache
-
-                    # Restore cache data
-                    cache = self.namespaces[name]
-                    cache.cache = OrderedDict()
-
-                    # Reconstruct CacheEntry objects from saved data
-                    for key, entry_data in data.get("cache", {}).items():
-                        if isinstance(entry_data, dict):
-                            # New format with individual fields
-                            entry = CacheEntry(
-                                value=entry_data["value"],
-                                ttl_seconds=entry_data.get("ttl_seconds"),
-                            )
-                            entry.created_at = entry_data.get("created_at", time.time())
-                            entry.accessed_at = entry_data.get(
-                                "accessed_at", time.time()
-                            )
-                            entry.access_count = entry_data.get("access_count", 0)
-                        else:
-                            # Legacy format (direct value)
-                            entry = CacheEntry(value=entry_data)
-
-                        cache.cache[key] = entry
-
-                    # Reset statistics for fresh per-run tracking (don't preserve old stats)
-                    cache.stats = {
-                        "hits": 0,
-                        "misses": 0,
-                        "evictions": 0,
-                        "size": len(cache.cache),
-                    }
-
-            self.logger.info(f"Intelligent cache loaded from {filepath}")
-
-            # Perform cache warming for critical namespaces
-            self._warm_critical_caches()
-
-        except Exception as e:
-            self.logger.error(f"Failed to load intelligent cache: {e}")
-            import traceback
-
-            self.logger.debug(f"Cache load error details: {traceback.format_exc()}")
-
-    def _warm_critical_caches(self):
-        """Warm up critical cache namespaces by cleaning expired entries."""
-        critical_namespaces = ["media_ids", "tmdb_api"]
-
-        with self.lock:
-            for namespace in critical_namespaces:
-                if namespace in self.namespaces:
-                    cache = self.namespaces[namespace]
-                    expired_count = 0
-
-                    # Clean expired entries
-                    expired_keys = []
-                    for key, entry in cache.cache.items():
-                        if entry.is_expired():
-                            expired_keys.append(key)
-
-                    for key in expired_keys:
-                        del cache.cache[key]
-                        expired_count += 1
-
-                    if expired_count > 0:
-                        self.logger.debug(
-                            f"Cache warming: cleaned {expired_count} expired entries in {namespace}"
-                        )
-
 
 class CacheManager:
     """High-level cache manager with intelligent caching strategies."""
@@ -575,58 +479,13 @@ class CacheManager:
             self.cache.clear_all()
             self.logger.info("Cleared all cache namespaces")
 
-    def save_cache(self, filepath: str):
-        """Save intelligent cache to file."""
-        self.cache.save_to_file(filepath)
-
-    def load_cache(self, filepath: str):
-        """Load intelligent cache from file."""
-        self.cache.load_from_file(filepath)
-
     def get_cache_file_path(self, filename: str) -> str:
         """Get full path for cache file."""
         return os.path.join(self.cache_dir, filename)
 
-    def should_load_cache(self) -> bool:
-        """Determine if cache should be loaded."""
-        return not self.disable_cache
-
-    def should_save_cache(self) -> bool:
-        """Determine if cache should be saved."""
-        return not self.disable_cache
-
     def get_namespace_config(self, namespace: str) -> Dict:
         """Get configuration for a specific namespace."""
         return self.cache.get_namespace_config(namespace)
-
-    def refresh_permanent_entries(self, namespace: str):
-        """Force refresh of permanent cache entries by clearing them.
-
-        This method clears permanent cache entries (TTL=None) that should be refreshed,
-        such as when external APIs have updated their data.
-
-        Args:
-            namespace: The cache namespace to refresh (e.g., 'tmdb_api', 'media_ids')
-        """
-        if namespace in self.cache.namespaces:
-            cache = self.cache.namespaces[namespace]
-            permanent_keys = []
-
-            with cache.lock:
-                for key, entry in cache.cache.items():
-                    if entry.ttl_seconds is None:  # Permanent entry
-                        permanent_keys.append(key)
-
-                for key in permanent_keys:
-                    del cache.cache[key]
-                    cache.stats["size"] = len(cache.cache)
-
-            if permanent_keys:
-                self.logger.info(
-                    f"Refreshed {len(permanent_keys)} permanent entries in {namespace}"
-                )
-            else:
-                self.logger.info(f"No permanent entries found in {namespace}")
 
 
 # Global cache manager instance with default settings

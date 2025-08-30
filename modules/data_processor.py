@@ -5,7 +5,6 @@ This module handles YAML data filtering, structure preprocessing, data compariso
 and change detection for the Mediux scraper.
 """
 
-import hashlib
 import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple

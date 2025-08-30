@@ -120,17 +120,3 @@ def get_global_session() -> requests.Session:
     return global_session.session
 
 
-def make_request(method: str, url: str, **kwargs) -> requests.Response:
-    """
-    Make an HTTP request using the global session.
-
-    Args:
-        method: HTTP method (GET, POST, etc.)
-        url: URL to request
-        **kwargs: Additional arguments passed to the request
-
-    Returns:
-        requests.Response object
-    """
-    session = get_global_session()
-    return session.request(method, url, **kwargs)
