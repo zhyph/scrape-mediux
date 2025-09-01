@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import urllib3
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class GlobalSessionManager:
     def _initialize_session(self) -> None:
         """Initialize the HTTP session with optimized settings."""
         self._session = requests.Session()
+        self._session.verify = True  # Default to verify SSL
 
         # Configure retry strategy
         retry_strategy = Retry(
@@ -61,6 +63,14 @@ class GlobalSessionManager:
         logger.debug(
             "Global HTTP session initialized with connection pooling and retry logic"
         )
+
+    def set_verify(self, verify: bool) -> None:
+        """Set SSL verification for the global session."""
+        if self._session is None:
+            self._initialize_session()
+        assert self._session is not None  # Help type checker
+        self._session.verify = verify
+        logger.debug(f"SSL verification set to {verify}")
 
     @property
     def session(self) -> requests.Session:
@@ -101,6 +111,11 @@ class GlobalSessionManager:
             self._session = None
             logger.debug("Global HTTP session closed")
 
+    def configure(self, **kwargs) -> None:
+        """Configure the global session with provided settings."""
+        if kwargs.get("disable_ssl_verification"):
+            self.set_verify(False)
+
     def __del__(self) -> None:
         """Cleanup on object destruction."""
         self.close()
@@ -118,3 +133,20 @@ def get_global_session() -> requests.Session:
         The shared requests.Session instance used across the application
     """
     return global_session.session
+
+
+def configure_global_session(disable_ssl_verification: bool = False) -> None:
+    """
+    Configure the global HTTP session.
+
+    Args:
+        disable_ssl_verification: Whether to disable SSL verification
+    """
+    global_session.configure(disable_ssl_verification=disable_ssl_verification)
+
+    if disable_ssl_verification:
+        try:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            logger.debug("SSL certificate verification warnings suppressed")
+        except ImportError:
+            logger.debug("urllib3 not available, SSL warnings may still appear")

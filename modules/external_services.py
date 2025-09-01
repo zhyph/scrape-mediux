@@ -174,7 +174,8 @@ class PlexClient:
             )
             raise
 
-        plex = PlexServer(self.url, self.token)
+        session = get_global_session()
+        plex = PlexServer(self.url, self.token, session=session)
         media_ids = []
         folder_map = defaultdict(list)
 
@@ -240,7 +241,8 @@ class PlexClient:
             )
             raise
 
-        plex = PlexServer(self.url, self.token)
+        session = get_global_session()
+        plex = PlexServer(self.url, self.token, session=session)
         available = [section.title for section in plex.library.sections()]
 
         self.logger.info("Available Plex libraries:")

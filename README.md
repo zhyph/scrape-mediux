@@ -120,7 +120,8 @@ cp config.example.json config.json
   "max_cache_size": 1000,
   "default_cache_ttl": 3600,
   "max_cache_memory_mb": 50.0,
-  "memory_check_interval": 100
+  "memory_check_interval": 100,
+  "disable_ssl_verification": false
 }
 ```
 
@@ -155,6 +156,7 @@ cp config.example.json config.json
 - **`default_cache_ttl`**: Default TTL in seconds for cache entries. Can also be set via `--default_cache_ttl` command line option. Defaults to `3600` (1 hour).
 - **`max_cache_memory_mb`**: Maximum memory usage in MB before triggering cleanup. Can also be set via `--max_cache_memory_mb` command line option. Defaults to `50.0`.
 - **`memory_check_interval`**: Check memory usage every N operations. Can also be set via `--memory_check_interval` command line option. Defaults to `100`.
+- **`disable_ssl_verification`**: A boolean value (`true` or `false`) to disable SSL certificate verification for HTTPS requests. Useful for local HTTPS setups or when certificate verification is causing issues. Defaults to `false`. Use with caution, as this reduces security.
 
 </details>
 
@@ -281,6 +283,7 @@ If any arguments are provided, they will override the corresponding values in th
 - `--default_cache_ttl`: Default TTL in seconds for cache entries (default: 3600).
 - `--max_cache_memory_mb`: Maximum memory usage in MB before triggering cleanup (default: 50.0).
 - `--memory_check_interval`: Check memory usage every N operations (default: 100).
+- `--disable_ssl_verification`: Disable SSL certificate verification for HTTPS requests (default: false).
 
 ## Usage (Docker)
 

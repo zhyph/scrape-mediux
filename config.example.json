@@ -27,5 +27,6 @@
   "max_cache_size": 1000,
   "default_cache_ttl": 3600,
   "max_cache_memory_mb": 50.0,
-  "memory_check_interval": 100
+  "memory_check_interval": 100,
+  "disable_ssl_verification": false
 }

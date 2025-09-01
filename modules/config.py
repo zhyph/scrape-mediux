@@ -390,6 +390,11 @@ class ConfigManager:
             type=int,
             help="Check memory usage every N operations (default: 100)",
         )
+        parser.add_argument(
+            "--disable_ssl_verification",
+            action=argparse.BooleanOptionalAction,
+            help="Disable SSL certificate verification for HTTPS requests (default: false)",
+        )
 
         return parser
 
@@ -631,6 +636,14 @@ class ConfigManager:
                 config_key="memory_check_interval",
                 file_config=file_config,
                 default_val=100,
+            ),
+            "disable_ssl_verification": self._resolve_config_value(
+                arg_val=args.disable_ssl_verification,
+                env_var_name="DISABLE_SSL_VERIFICATION",
+                config_key="disable_ssl_verification",
+                file_config=file_config,
+                default_val=False,
+                is_bool=True,
             ),
         }
 

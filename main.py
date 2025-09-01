@@ -35,6 +35,13 @@ def main():
     # Parse configuration
     app_settings = config_manager.parse_arguments_and_load_config()
 
+    # Configure global HTTP session
+    from modules.http_client import configure_global_session
+
+    configure_global_session(
+        disable_ssl_verification=app_settings.get("disable_ssl_verification", False)
+    )
+
     # Handle copy-only mode
     if app_settings.get("copy_only"):
         if not app_settings["output_dir"]:
