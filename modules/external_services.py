@@ -6,6 +6,7 @@ Discord notifications, and Plex API for media discovery.
 """
 
 import logging
+import time
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
@@ -24,27 +25,32 @@ class DiscordNotifier:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def send_notification(self, webhook_url: Optional[str], message: str) -> None:
+    def send_notification(
+        self, webhook_url: Optional[str], message: str
+    ) -> tuple[bool, Optional[int]]:
         """
         Send a notification to Discord webhook.
 
         Args:
             webhook_url: Discord webhook URL
             message: Message to send
+
+        Returns:
+            bool: True if sent successfully, False if rate limited
         """
         if not webhook_url:
             self.logger.debug(
                 "Discord webhook URL not configured. Skipping notification."
             )
-            return
+            return (True, None)
 
         if not message:
             self.logger.debug(
                 "No message content to send to Discord. Skipping notification."
             )
-            return
+            return (True, None)
 
-        self.logger.info(f"Sending notification to Discord: {message[:100]}...")
+        self.logger.debug(f"Sending notification to Discord: {message[:100]}...")
         payload = {"content": message}
         try:
             session = get_global_session()
@@ -54,9 +60,60 @@ class DiscordNotifier:
                 timeout=WebAutomationConstants.ELEMENT_WAIT_TIMEOUT_STANDARD,
             )
             response.raise_for_status()
-            self.logger.info("Discord notification sent successfully.")
+            self.logger.debug("Discord notification sent successfully.")
+            return (True, None)
+        except requests.exceptions.HTTPError as e:
+            if hasattr(e, "response") and e.response and e.response.status_code == 429:
+                # Rate limit exceeded
+                retry_after = e.response.headers.get("Retry-After", "300")
+                try:
+                    wait_time = int(retry_after)
+                except ValueError:
+                    wait_time = 300  # Default to 5 minutes if invalid
+                self.logger.warning(
+                    f"Discord rate limit hit! Waiting {wait_time} seconds until retry."
+                )
+                return (False, wait_time)
+            else:
+                self.logger.error(f"HTTP error sending Discord notification: {e}")
+                return (True, None)  # Return True to avoid stopping the whole process
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to send Discord notification: {e}")
+            return (True, None)  # Return True to avoid stopping the whole process
+
+    @staticmethod
+    def send_rate_limited_message(
+        webhook_url: Optional[str], total_titles: int, wait_time: int = 300
+    ) -> None:
+        """
+        Send a final message when the report was too long and got rate limited.
+        Waits for the specified time before sending.
+
+        Args:
+            webhook_url: Discord webhook URL
+            total_titles: Total number of titles that were being reported
+            wait_time: Time to wait in seconds before sending (default 5 minutes)
+        """
+        if not webhook_url:
+            return
+
+        logger.info(
+            f"⏳ Waiting {wait_time} seconds for Discord rate limit to expire..."
+        )
+        time.sleep(wait_time)
+
+        message = (
+            f"🔥 Final report length was too much for Discord!\n"
+            f"📊 Processed {total_titles} titles total.\n"
+            f"📋 Check the logs for the complete report."
+        )
+        discord_notifier = DiscordNotifier()
+        # Try to send the final message, but if rate limited again, just log it
+        success, _ = discord_notifier.send_notification(webhook_url, message)
+        if not success:
+            logger.warning(
+                "Final rate limit message was also rate limited - the report summary couldn't be sent."
+            )
 
 
 class SonarrClient:

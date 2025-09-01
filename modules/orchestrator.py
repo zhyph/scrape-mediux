@@ -432,12 +432,15 @@ def run(
 
         # Discord notifications
         if context.updated_titles_list and discord_webhook_url_global:
+            logger.info("👤 Sending Discord notifications...")
             max_titles_per_message = 15
             num_titles = len(context.updated_titles_list)
 
             from modules.external_services import DiscordNotifier
 
             discord_notifier = DiscordNotifier()
+            rate_limited = False
+            wait_time = None
             for i in range(0, num_titles, max_titles_per_message):
                 chunk = context.updated_titles_list[i : i + max_titles_per_message]
                 display_strings = []
@@ -462,8 +465,21 @@ def run(
                 elif num_titles > max_titles_per_message and i == 0:
                     message_content += f"\n(Showing first {max_titles_per_message} of {num_titles} titles)"
 
-                discord_notifier.send_notification(
+                success, wait_time_value = discord_notifier.send_notification(
                     webhook_url=discord_webhook_url_global, message=message_content
+                )
+                if not success:
+                    rate_limited = True
+                    wait_time = wait_time_value
+                    break
+
+            if rate_limited and wait_time:
+                DiscordNotifier.send_rate_limited_message(
+                    discord_webhook_url_global, num_titles, wait_time
+                )
+            elif rate_limited:
+                DiscordNotifier.send_rate_limited_message(
+                    discord_webhook_url_global, num_titles
                 )
 
         if truly_fixed_and_updated and discord_webhook_url_global:
@@ -475,7 +491,8 @@ def run(
             from modules.external_services import DiscordNotifier
 
             discord_notifier = DiscordNotifier()
-            discord_notifier.send_notification(
+            # We handle the return value but since this is one message, rate limit is unlikely
+            success, _ = discord_notifier.send_notification(
                 webhook_url=discord_webhook_url_global, message=message_content
             )
 
