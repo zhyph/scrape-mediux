@@ -19,7 +19,7 @@ from modules.intelligent_cache import (
     set_global_cache_manager,
     create_cache_manager_from_config,
 )
-from modules.base import ScraperContext, FileSystemConstants
+from modules.base import ScraperContext, FileSystemConstants, MediuxConfig
 
 # Detect if running in an interactive terminal for progress bar control
 is_interactive = sys.stdout.isatty() and sys.stderr.isatty()
@@ -372,16 +372,27 @@ def run(
 
         if context.updated_titles_list:
             logger.info(f"✅ {len(context.updated_titles_list)} titles were updated:")
-            for title in context.updated_titles_list:
-                print(f"   • {title}")
+            for title_tuple in context.updated_titles_list:
+                media_name, log_id_str, tmdb_id, media_type = title_tuple
+                mediux_url = (
+                    MediuxConfig.get_movie_url(tmdb_id)
+                    if media_type == "movie"
+                    else MediuxConfig.get_show_url(tmdb_id)
+                )
+                print(f"   • {media_name} ({log_id_str}) - {mediux_url}")
         else:
             logger.info("📋 No titles were updated - all content was up to date")
 
-        truly_fixed_and_updated = [
-            title
-            for title in context.fixed_titles_list
-            if title in context.updated_titles_list
-        ]
+        truly_fixed_and_updated = []
+        for fixed_tuple in context.fixed_titles_list:
+            fixed_media_name, fixed_log_id_str, _, _ = fixed_tuple
+            fixed_display = f"{fixed_media_name} ({fixed_log_id_str})"
+            for updated_tuple in context.updated_titles_list:
+                updated_media_name, updated_log_id_str, _, _ = updated_tuple
+                updated_display = f"{updated_media_name} ({updated_log_id_str})"
+                if fixed_display == updated_display:
+                    truly_fixed_and_updated.append(fixed_display)
+                    break
 
         if truly_fixed_and_updated:
             logger.info(
@@ -429,8 +440,19 @@ def run(
             discord_notifier = DiscordNotifier()
             for i in range(0, num_titles, max_titles_per_message):
                 chunk = context.updated_titles_list[i : i + max_titles_per_message]
+                display_strings = []
+                for title_tuple in chunk:
+                    media_name, log_id_str, tmdb_id, media_type = title_tuple
+                    mediux_url = (
+                        MediuxConfig.get_movie_url(tmdb_id)
+                        if media_type == "movie"
+                        else MediuxConfig.get_show_url(tmdb_id)
+                    )
+                    display_strings.append(
+                        f"{media_name} ({log_id_str}) - <{mediux_url}>"
+                    )
                 message_content = "Newly processed/updated titles:\n- " + "\n- ".join(
-                    chunk
+                    display_strings
                 )
                 if (
                     num_titles > max_titles_per_message

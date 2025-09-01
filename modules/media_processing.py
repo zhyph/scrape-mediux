@@ -217,6 +217,7 @@ class MediaProcessingPipeline:
         disable_season_fix,
         tvdb_id_for_tv,
         tmdb_id,
+        media_type,
         fixed_titles_list,
     ):
         """Handle fixing of malformed TV YAML structure."""
@@ -238,7 +239,7 @@ class MediaProcessingPipeline:
             log_id_str = (
                 f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
             )
-            fixed_titles_list.append(f"{media_name} ({log_id_str})")
+            fixed_titles_list.append((media_name, log_id_str, tmdb_id, media_type))
         else:
             logger.warning(
                 f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
@@ -294,6 +295,7 @@ class MediaProcessingPipeline:
                     disable_season_fix=disable_season_fix,
                     tvdb_id_for_tv=tvdb_id_for_tv,
                     tmdb_id=tmdb_id,
+                    media_type=media_type,
                     fixed_titles_list=fixed_titles_list,
                 )
 
@@ -572,7 +574,7 @@ class MediaProcessingPipeline:
                 if media_type == "tv" and tvdb_id_for_tv
                 else f"TMDB: {tmdb_id}"
             )
-            updated_titles_list.append(f"{media_name} ({log_id_str})")
+            updated_titles_list.append((media_name, log_id_str, tmdb_id, media_type))
 
         # Store data in new_data for each folder
         for folder_name in folder_map_for_media.get(media_id_from_folder, []):
