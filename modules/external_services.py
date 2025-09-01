@@ -6,10 +6,8 @@ Discord notifications, and Plex API for media discovery.
 """
 
 import logging
-import os
-import re
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import requests
 
@@ -151,6 +149,21 @@ class PlexClient:
         self.url = url.rstrip("/")
         self.token = token
         self.logger = logging.getLogger(__name__)
+        self._plex_server = None
+
+    def _get_plex_server(self):
+        """Get or create the PlexServer instance (lazy loading)."""
+        if self._plex_server is None:
+            try:
+                from plexapi.server import PlexServer
+            except ImportError:
+                self.logger.error(
+                    "plexapi is not installed. Please add 'plexapi' to requirements.txt."
+                )
+                raise
+            session = get_global_session()
+            self._plex_server = PlexServer(self.url, self.token, session=session)
+        return self._plex_server
 
     def get_media_ids_from_plex(
         self, libraries: List[str]
@@ -166,16 +179,7 @@ class PlexClient:
         """
         self.logger.info("Fetching media IDs from Plex API...")
 
-        try:
-            from plexapi.server import PlexServer
-        except ImportError:
-            self.logger.error(
-                "plexapi is not installed. Please add 'plexapi' to requirements.txt."
-            )
-            raise
-
-        session = get_global_session()
-        plex = PlexServer(self.url, self.token, session=session)
+        plex = self._get_plex_server()
         media_ids = []
         folder_map = defaultdict(list)
 
@@ -233,16 +237,7 @@ class PlexClient:
         Returns:
             List of library names
         """
-        try:
-            from plexapi.server import PlexServer
-        except ImportError:
-            self.logger.error(
-                "plexapi is not installed. Please add 'plexapi' to requirements.txt."
-            )
-            raise
-
-        session = get_global_session()
-        plex = PlexServer(self.url, self.token, session=session)
+        plex = self._get_plex_server()
         available = [section.title for section in plex.library.sections()]
 
         self.logger.info("Available Plex libraries:")

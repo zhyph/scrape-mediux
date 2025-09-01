@@ -9,11 +9,10 @@ import argparse
 import json
 import logging
 import os
-from typing import Any, Dict, List, Union
+from typing import Any, Dict
 
 from ruamel import yaml
 
-from .intelligent_cache import CacheManager
 
 from .base import FileSystemConstants
 

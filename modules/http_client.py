@@ -6,7 +6,7 @@ persistent connections and standardized request handling across the application.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry

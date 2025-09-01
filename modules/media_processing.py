@@ -218,7 +218,6 @@ class MediaProcessingPipeline:
         tvdb_id_for_tv,
         tmdb_id,
         fixed_titles_list,
-        safe_append,
     ):
         """Handle fixing of malformed TV YAML structure."""
         if disable_season_fix:
@@ -239,7 +238,7 @@ class MediaProcessingPipeline:
             log_id_str = (
                 f"TVDB: {tvdb_id_for_tv}" if tvdb_id_for_tv else f"TMDB: {tmdb_id}"
             )
-            safe_append(fixed_titles_list, f"{media_name} ({log_id_str})")
+            fixed_titles_list.append(f"{media_name} ({log_id_str})")
         else:
             logger.warning(
                 f"Preprocessing was triggered for '{media_name}' but no changes were made by the function."
@@ -260,7 +259,6 @@ class MediaProcessingPipeline:
         disable_season_fix,
         tvdb_id_for_tv,
         fixed_titles_list,
-        safe_append,
         config,
     ):
         """Scrape Mediux data and process YAML structure for TV shows."""
@@ -297,7 +295,6 @@ class MediaProcessingPipeline:
                     tvdb_id_for_tv=tvdb_id_for_tv,
                     tmdb_id=tmdb_id,
                     fixed_titles_list=fixed_titles_list,
-                    safe_append=safe_append,
                 )
 
         return new_raw_yaml
@@ -555,7 +552,6 @@ class MediaProcessingPipeline:
         folder_map_for_media,
         media_id_from_folder,
         new_data,
-        safe_append,
     ):
         """Perform comparison, update lists, and store new data."""
         id_for_comp_log = (
@@ -576,7 +572,7 @@ class MediaProcessingPipeline:
                 if media_type == "tv" and tvdb_id_for_tv
                 else f"TMDB: {tmdb_id}"
             )
-            safe_append(updated_titles_list, f"{media_name} ({log_id_str})")
+            updated_titles_list.append(f"{media_name} ({log_id_str})")
 
         # Store data in new_data for each folder
         for folder_name in folder_map_for_media.get(media_id_from_folder, []):
@@ -617,9 +613,6 @@ def process_single_media_item(
     updated_titles_list = context.updated_titles_list
     fixed_titles_list = context.fixed_titles_list
     driver = context.driver
-
-    # Use standard append function
-    safe_append = lambda container, item: container.append(item)
 
     # Log the start of processing immediately
     media_separator = "=" * 60
@@ -706,7 +699,6 @@ def process_single_media_item(
         disable_season_fix=config.disable_season_fix,
         tvdb_id_for_tv=tvdb_id_for_tv,
         fixed_titles_list=fixed_titles_list,
-        safe_append=safe_append,
         config=config,
     )
 
@@ -740,7 +732,6 @@ def process_single_media_item(
         folder_map_for_media=folder_map_for_media,
         media_id_from_folder=media_id_from_folder,
         new_data=new_data,
-        safe_append=safe_append,
     )
 
     # Mark completion of this media item with prominent separator

@@ -8,9 +8,7 @@ and bulk data management for the Mediux scraper.
 import logging
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-
-from modules.config import yaml_parser
+from typing import Any, Dict, Optional, Set, Tuple, Union
 from modules.base import CachedService, YAMLService, FileSystemConstants
 
 logger = logging.getLogger(__name__)

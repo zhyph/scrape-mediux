@@ -11,7 +11,7 @@ import pickle
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .base import FileSystemConstants
 
@@ -524,17 +524,6 @@ class CacheManager:
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics."""
         return self.cache.get_all_stats()
-
-    def sonarr_cache_exists(self, media_name: str, tmdb_id: Optional[str]) -> bool:
-        """Check if Sonarr cache entry exists without triggering access or logging."""
-        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
-
-        # Get namespace without triggering any access logic
-        namespace = self.cache.namespaces.get("sonarr_api")
-        if namespace:
-            return cache_key in namespace.cache
-
-        return False
 
     def load_cache(self):
         """Load cache from file."""

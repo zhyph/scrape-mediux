@@ -9,7 +9,6 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from modules.config import yaml_parser
 from modules.base import CachedService, YAMLService, MediuxConfig
 
 logger = logging.getLogger(__name__)
