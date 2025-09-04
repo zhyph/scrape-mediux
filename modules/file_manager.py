@@ -1,0 +1,259 @@
+"""
+File I/O and cache management for Mediux Scraper.
+
+This module handles cache operations, file reading/writing, data persistence,
+and bulk data management for the Mediux scraper.
+"""
+
+import logging
+import os
+import shutil
+from typing import Any, Dict, Optional, Set, Tuple, Union
+from modules.base import CachedService, YAMLService, FileSystemConstants
+
+logger = logging.getLogger(__name__)
+
+
+class BulkDataManager(CachedService):
+    """Manages bulk data file operations."""
+
+    def __init__(self, cache_manager=None, yaml_service=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
+
+    def load_bulk_data(
+        self, bulk_data_file: str, only_set_urls: bool = False
+    ) -> Union[Dict[str, Any], Set[str]]:
+        """
+        Load bulk data from YAML file with intelligent caching.
+
+        Args:
+            bulk_data_file: Path to bulk data file
+            only_set_urls: If True, return only set URLs
+
+        Returns:
+            Bulk data dictionary or set of URLs
+        """
+        if os.path.exists(bulk_data_file):
+            self.logger.info(f"Loading bulk data from {bulk_data_file}...")
+            with open(bulk_data_file, "r", encoding="utf-8") as f:
+                file_content = f.read()
+
+                if only_set_urls:
+                    from modules.data_processor import SetURLExtractor
+
+                    extractor = SetURLExtractor()
+                    bulk_data = extractor.extract_set_urls(file_content)
+                    self.logger.info(
+                        f"Loaded {len(bulk_data)} set URLs from bulk data."
+                    )
+                else:
+                    try:
+                        bulk_data = self.yaml_service.load_from_string(file_content)
+                        if (
+                            bulk_data
+                            and "metadata" in bulk_data
+                            and isinstance(bulk_data["metadata"], dict)
+                        ):
+                            bulk_data["metadata"] = {
+                                str(k): v for k, v in bulk_data["metadata"].items()
+                            }
+                        self.logger.info("Bulk data loaded successfully.")
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error loading bulk data from {bulk_data_file}: {e}"
+                        )
+                        bulk_data = {"metadata": {}}
+
+            if not bulk_data:
+                self.logger.warning("No data found in bulk data file.")
+                empty_result = set() if only_set_urls else {"metadata": {}}
+                return empty_result
+
+            return bulk_data
+
+        self.logger.debug(f"Bulk data file {bulk_data_file} not found.")
+        empty_result = set() if only_set_urls else {"metadata": {}}
+        return empty_result
+
+
+class FileWriter(CachedService):
+    """Handles writing data to files and managing output directories."""
+
+    def __init__(self, cache_manager=None, yaml_service=None):
+        # Initialize parent class (provides self.cache_manager and self.logger)
+        super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
+
+    def _collect_existing_urls_from_yaml_files(self) -> Set[str]:
+        """
+        Collect existing set URLs from all YAML files in the kometa output directory.
+
+        Returns:
+            Set of existing URLs
+        """
+        existing_urls = set()
+        kometa_dir = FileSystemConstants.KOMETA_DIR
+
+        if not os.path.exists(kometa_dir):
+            self.logger.debug("Kometa output directory doesn't exist yet")
+            return existing_urls
+
+        # Scan all YAML files in the kometa directory
+        for filename in os.listdir(kometa_dir):
+            if filename.endswith(FileSystemConstants.DATA_FILE_SUFFIX):
+                file_path = os.path.join(kometa_dir, filename)
+                bulk_manager = BulkDataManager()
+                file_urls = bulk_manager.load_bulk_data(
+                    bulk_data_file=file_path, only_set_urls=True
+                )
+                existing_urls.update(file_urls)
+                self.logger.debug(f"Collected {len(file_urls)} URLs from {filename}")
+
+        self.logger.debug(f"Total existing URLs collected: {len(existing_urls)}")
+        return existing_urls
+
+    def _update_data_file(
+        self,
+        folder_name: Union[str, Tuple[str, ...]],
+        data_to_write: Dict[str, Any],
+        existing_urls_set: Set[str],
+    ) -> Tuple[str, int]:
+        """
+        Update a data file with new data.
+
+        Args:
+            folder_name: Name of the folder/file
+            data_to_write: Data to write
+            existing_urls_set: Set to update with new URLs
+
+        Returns:
+            Tuple of (file_name, total_urls_added)
+        """
+        import re
+
+        name_to_process = (
+            folder_name[0] if isinstance(folder_name, tuple) else folder_name
+        )
+        safe_folder = re.sub(r"[^\w\-]", "_", name_to_process.lower())
+        file_name = os.path.join(
+            FileSystemConstants.KOMETA_DIR,
+            f"{safe_folder}{FileSystemConstants.DATA_FILE_SUFFIX}",
+        )
+        total_urls = 0
+
+        file_data = {"metadata": {}}
+        if os.path.exists(file_name):
+            with open(file_name, "r", encoding="utf-8") as f:
+                loaded_data = self.yaml_service.load_from_string(f.read())
+                if loaded_data and "metadata" in loaded_data:
+                    file_data = loaded_data
+                elif loaded_data:
+                    file_data["metadata"] = loaded_data
+
+        from modules.data_processor import SetURLExtractor
+
+        extractor = SetURLExtractor()
+
+        for key, item_yaml_data in data_to_write.items():
+            parsed_item_yaml = self.yaml_service.load_from_string(item_yaml_data)
+            if parsed_item_yaml:
+                # Merge the parsed YAML content directly into metadata
+                # instead of nesting it under the key
+                file_data["metadata"].update(parsed_item_yaml)
+            item_urls = extractor.extract_set_urls(yaml_data=item_yaml_data)
+            existing_urls_set.update(item_urls)
+            total_urls += len(item_urls)
+
+        yaml_string = self.yaml_service.dump_to_string(file_data)
+        if yaml_string:
+            with open(file_name, "w", encoding="utf-8") as f:
+                f.write(yaml_string)
+
+        return file_name, total_urls
+
+    def _copy_to_output_dir(self, output_dir_global: Optional[str]) -> None:
+        """
+        Copy files to the output directory.
+
+        Args:
+            output_dir_global: Output directory path
+        """
+        if not output_dir_global:
+            return
+
+        self.logger.info(f"Copying files to {output_dir_global}...")
+        if not os.path.exists(output_dir_global):
+            os.makedirs(output_dir_global)
+            self.logger.debug(f"Created output directory {output_dir_global}.")
+
+        kometa_out_dir = FileSystemConstants.KOMETA_DIR
+        if not os.path.exists(kometa_out_dir):
+            self.logger.warning(
+                f"Source directory {kometa_out_dir} does not exist. Nothing to copy."
+            )
+            return
+
+        for filename in os.listdir(kometa_out_dir):
+            src_file = os.path.join(kometa_out_dir, filename)
+            dst_file = os.path.join(output_dir_global, filename)
+            shutil.copy2(src_file, dst_file)
+        self.logger.info(f"Files copied to {output_dir_global}.")
+
+    def write_data_to_files(
+        self,
+        new_data: Dict[str, Dict[str, str]],
+        output_dir_global: Optional[str],
+    ) -> None:
+        """
+        Write all collected data to files with support for both Plex and folder modes.
+
+        Args:
+            new_data: New data to write
+            cache: Cache to save
+            cache_file: Cache file path
+            output_dir_global: Output directory for copying files
+            root_folder_global: Root folder(s) for folder-based mode (deprecated for Plex mode)
+            plex_url: Plex server URL for Plex mode validation
+            plex_token: Plex token for Plex mode validation
+            plex_libraries: Plex libraries for Plex mode validation
+        """
+        # Validate Plex configuration if provided
+        self.logger.info("Writing data to files...")
+
+        os.makedirs(FileSystemConstants.KOMETA_DIR, exist_ok=True)
+        self.logger.debug(
+            f"Ensured output directory '{FileSystemConstants.KOMETA_DIR}' exists."
+        )
+
+        # Collect existing URLs from all YAML files in kometa directory
+        existing_urls = self._collect_existing_urls_from_yaml_files()
+
+        updated_files_list = []
+
+        for folder_name, data_for_folder in new_data.items():
+            file_name_str, _ = self._update_data_file(
+                folder_name=folder_name,
+                data_to_write=data_for_folder,
+                existing_urls_set=existing_urls,
+            )
+            updated_files_list.append(file_name_str)
+
+        if updated_files_list:
+            self.logger.info(
+                f"Updated {len(updated_files_list)} files: {', '.join(updated_files_list)}"
+            )
+        else:
+            self.logger.info("No data files were updated.")
+
+        self.logger.info(f"Collected a total of {len(existing_urls)} unique set URLs.")
+
+        with open(FileSystemConstants.BULK_FILE_PATH, "w", encoding="utf-8") as f:
+            for url in sorted(existing_urls):
+                f.write(url + "\n")
+        self.logger.info(f"Set URLs updated in '{FileSystemConstants.BULK_FILE_PATH}'.")
+
+        self.logger.info("Data writing completed.")
+
+        self._copy_to_output_dir(output_dir_global)

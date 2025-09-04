@@ -19,5 +19,14 @@
   "preferred_users": [],
   "excluded_users": [],
   "discord_webhook_url": "",
-  "disable_season_fix": false
+  "disable_season_fix": false,
+  "remove_paths": [],
+  "disable_cache": false,
+  "clear_cache": false,
+  "cache_dir": "./out",
+  "max_cache_size": 1000,
+  "default_cache_ttl": 3600,
+  "max_cache_memory_mb": 50.0,
+  "memory_check_interval": 100,
+  "disable_ssl_verification": false
 }
