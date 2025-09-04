@@ -3,8 +3,7 @@ name: Build and Publish Docker Image
 on:
   push:
     branches:
-      - master
-      - develop
+      - "*"
     # Just in-case if ever needed.
     tags:
       - "v*.*.*"
