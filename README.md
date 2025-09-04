@@ -1,5 +1,7 @@
 # Mediux Poster Scraper
 
+## LEGACY BRANCH
+
 This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb, TVDB or TMDB IDs to find corresponding movies/shows. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
 
 ## Features
