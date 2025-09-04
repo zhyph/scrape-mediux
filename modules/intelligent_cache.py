@@ -184,7 +184,8 @@ class IntelligentCache:
 
             # If still over memory limit, remove least recently used items
             target_size = int(self.max_size * 0.7)  # Reduce to 70% of max size
-            while len(self.cache) > target_size:
+            while len(self.cache) > target_size and len(self.cache) > 0:
+                self.cache.popitem(last=False)
                 self.stats["evictions"] += 1
 
             self.stats["size"] = len(self.cache)
@@ -382,8 +383,6 @@ class NamespaceCache:
                 # Load each namespace
                 for name, namespace_data in cache_data.items():
                     if name not in self.namespaces:
-                        namespace_data.get("cache", {})
-
                         self.namespaces[name] = IntelligentCache(
                             max_size=namespace_data.get(
                                 "max_size", self.default_max_size
