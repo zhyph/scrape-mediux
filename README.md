@@ -47,10 +47,62 @@ This script automates the process of scraping movie and TV show poster data from
 
 ## Requirements
 
-- Python >=3.9 (if running locally)
 - Docker (if running in a container)
+- Python >=3.9 (if running locally)
 
 By default, the script will use your Plex server configuration to fetch media IDs. See the [Plex Configuration](#plex-configuration) section below.
+
+## Usage (Docker)
+
+You can run the scraper using Docker. A prebuilt image is available on Docker Hub.
+
+### Docker Compose
+
+<details>
+<summary>Click to expand Docker Compose details</summary>
+
+It's recommended to use this script with cron when running in Docker. (Just modify the `cron` field in the `config.json` file to your desired schedule.)
+
+Here’s an example `docker-compose.yml` file (also available in the repository):
+
+```yaml
+services:
+  scrape-mediux:
+    image: docker.io/zhyph/scrape-mediux
+    container_name: scrape-mediux
+    environment:
+      - TZ=Etc/UTC # Set your timezone
+      - LOG_LEVEL=info # Set the log level (debug, info, warning, error), can be omitted
+    volumes:
+      - /path/to/config:/config # REQUIRED
+      - /path/to/config/cache:/app/out # RECOMMENDED, if you don't bind this, the cache will be stored in the container and can easily be lost
+      - /path/to/config/profile:/profile # RECOMMENDED, must match profile_path in config.json, if you don't bind this, the profile can be removed and you will need to login again (which is not a big deal, but it will take longer)
+      - /path/to/kometa/metadata:/out # OPTIONAL, output_dir in config.json (or args) must match this
+```
+
+### Running with Docker Compose
+
+1. Create a `config.json` file in the `/path/to/config` directory. Use the `config.example.json` as a template.
+2. Update the `docker-compose.yml` file with the correct paths for your configuration, media, and output directories.
+3. Start the container:
+
+   ```bash
+   docker-compose up -d
+   ```
+
+4. Check the logs to ensure the scraper is running (check if the timezone is correct and the `Time Now` is correct):
+
+   ```bash
+   docker logs -f scrape-mediux
+   ```
+
+5. If running in cron mode, you can execute the script manually and omit the cron argument:
+
+   ```bash
+   docker exec -it scrape-mediux python main.py --cron ''
+   ```
+
+</details>
 
 ## Installation (Local)
 
@@ -285,54 +337,6 @@ If any arguments are provided, they will override the corresponding values in th
 - `--memory_check_interval`: Check memory usage every N operations (default: 100).
 - `--disable_ssl_verification`: Disable SSL certificate verification for HTTPS requests (default: false).
 
-## Usage (Docker)
+## Legacy
 
-You can run the scraper using Docker. A prebuilt image is available on Docker Hub.
-
-### Docker Compose
-
-<details>
-<summary>Click to expand Docker Compose details</summary>
-
-It's recommended to use this script with cron when running in Docker. (Just modify the `cron` field in the `config.json` file to your desired schedule.)
-
-Here’s an example `docker-compose.yml` file (also available in the repository):
-
-```yaml
-services:
-  scrape-mediux:
-    image: docker.io/zhyph/scrape-mediux
-    container_name: scrape-mediux
-    environment:
-      - TZ=Etc/UTC # Set your timezone
-      - LOG_LEVEL=info # Set the log level (debug, info, warning, error), can be omitted
-    volumes:
-      - /path/to/config:/config # REQUIRED
-      - /path/to/config/cache:/app/out # RECOMMENDED, if you don't bind this, the cache will be stored in the container and can easily be lost
-      - /path/to/config/profile:/profile # RECOMMENDED, must match profile_path in config.json, if you don't bind this, the profile can be removed and you will need to login again (which is not a big deal, but it will take longer)
-      - /path/to/kometa/metadata:/out # OPTIONAL, output_dir in config.json (or args) must match this
-```
-
-### Running with Docker Compose
-
-1. Create a `config.json` file in the `/path/to/config` directory. Use the `config.example.json` as a template.
-2. Update the `docker-compose.yml` file with the correct paths for your configuration, media, and output directories.
-3. Start the container:
-
-   ```bash
-   docker-compose up -d
-   ```
-
-4. Check the logs to ensure the scraper is running (check if the timezone is correct and the `Time Now` is correct):
-
-   ```bash
-   docker logs -f scrape-mediux
-   ```
-
-5. If running in cron mode, you can execute the script manually and omit the cron argument:
-
-   ```bash
-   docker exec -it scrape-mediux python main.py --cron ''
-   ```
-
-</details>
+If you are still using `root_folder`, check out `legacy_root_folder` branch or docker tag, it will allow you to use `root_folder`, but the feature is deprecated and won't come back, that branch will not receive any updates and will be held with latest stable version that `root_folder` was still available.
