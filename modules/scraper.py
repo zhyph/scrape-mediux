@@ -97,6 +97,13 @@ class WebDriverManager:
         )
         options.add_argument("--disable-logging")
         options.add_argument("--disable-logging-redirect")
+        options.add_argument("--log-level=3")
+        options.add_argument("--silent")
+
+        # Crashpad and error reporting
+        options.add_argument("--disable-crash-reporter")
+        options.add_argument("--disable-in-process-stack-traces")
+        options.add_argument("--disable-breakpad")
 
         # Performance optimizations
         options.add_argument("--prerender=disabled")
@@ -119,6 +126,10 @@ class WebDriverManager:
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-gpu-compositing")
         options.add_argument("--disable-gpu-rasterization")
+
+        # Experimental options
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
 
         return options
 
