@@ -262,15 +262,11 @@ def run(
 
         login_manager = MediuxLoginManager(webdriver_manager)
         login_manager.login(
-            driver=driver,
             username=username,
             password=password,
             nickname=nickname,
         )
         logger.info("✅ Successfully logged into Mediux")
-
-        # Set driver in context for processing functions
-        context.set_driver(driver)
 
         # Phase 4: Media Processing
         logger.info(f"\n{separator}\n⚙️  MEDIA PROCESSING\n{separator}")
@@ -307,7 +303,7 @@ def run(
                     )
 
                     # Safely quit current driver and clean up processes
-                    webdriver_manager.safe_quit_driver(driver)
+                    webdriver_manager.safe_quit_driver()
 
                     # Initialize new driver with enhanced stability options
                     driver = webdriver_manager.init_driver(
@@ -318,14 +314,11 @@ def run(
 
                     # Re-login to Mediux
                     login_manager.login(
-                        driver=driver,
                         username=username,
                         password=password,
                         nickname=nickname,
                     )
 
-                    # Update context with new driver
-                    context.set_driver(driver)
     finally:
         # Phase 5: Cleanup and Summary
         logger.info(f"\n{separator}\n🧹 CLEANUP & SUMMARY\n{separator}")
@@ -365,7 +358,7 @@ def run(
         )
 
         logger.info("👤 Shutting down...")
-        webdriver_manager.safe_quit_driver(driver)
+        webdriver_manager.safe_quit_driver()
 
         # Enhanced final summary
         logger.info(f"\n{separator}\n📊 FINAL RESULTS\n{separator}")

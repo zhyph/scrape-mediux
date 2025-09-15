@@ -52,7 +52,6 @@ class ScraperContext:
         self.folder_bulk_data = {}  # Bulk data loaded from YAML files
         self.updated_titles_list = []  # List of titles that were updated
         self.fixed_titles_list = []  # List of titles that were fixed
-        self.driver = None  # WebDriver instance
 
     def clear_new_data(self) -> None:
         """Clear all new data."""
@@ -66,14 +65,6 @@ class ScraperContext:
         """Clear all folder bulk data."""
         self.folder_bulk_data.clear()
 
-    def set_driver(self, driver) -> None:
-        """Set the WebDriver instance."""
-        self.driver = driver
-
-    def clear_driver(self) -> None:
-        """Clear the WebDriver instance."""
-        self.driver = None
-
     def clear_all(self) -> None:
         """Clear all state data."""
         self.clear_new_data()
@@ -81,7 +72,6 @@ class ScraperContext:
         self.clear_folder_bulk_data()
         self.updated_titles_list.clear()
         self.fixed_titles_list.clear()
-        self.clear_driver()
 
 
 class YAMLService:
