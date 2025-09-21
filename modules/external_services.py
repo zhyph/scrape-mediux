@@ -262,6 +262,11 @@ class PlexClient:
                         for guid in item.guids
                     }
 
+                    self.logger.debug(
+                        f"GUIDs for '{media_name}': {[g.id for g in item.guids]}"
+                    )
+                    self.logger.debug(f"Parsed GUIDs for '{media_name}': {guids}")
+
                     # Prioritize which ID to use
                     id_to_use, source = None, None
                     if "tmdb" in guids:
