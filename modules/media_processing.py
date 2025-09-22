@@ -102,6 +102,11 @@ class MediaProcessingPipeline:
                     )
                     return None, None
         else:
+            if not tmdb_client.api_key:
+                logger.error(
+                    f"TMDB API key is missing. Cannot fetch TMDB ID for {media_name}."
+                )
+                return None, None
             try:
                 tmdb_id, media_type_from_fetch = tmdb_client.fetch_tmdb_id(
                     media_id=media_id_from_folder,

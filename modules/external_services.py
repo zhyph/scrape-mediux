@@ -252,36 +252,53 @@ class PlexClient:
                 for item in library.all():
                     media_name = item.title
                     media_type = "tv" if library.type == "show" else library.type
+                    id_to_use, source = None, None
 
-                    # Extract and normalize GUIDs
-                    guids = {
-                        guid.id.split("://")[0]
-                        .replace("themoviedb", "tmdb")
-                        .replace("thetvdb", "tvdb"): guid.id.split("://")[1]
-                        .split("?")[0]
-                        for guid in item.guids
-                    }
-
+                    self.logger.debug(f"Processing item: {media_name} ({media_type})")
+                    self.logger.debug(f"Item details: {item.__dict__}")
                     self.logger.debug(
                         f"GUIDs for '{media_name}': {[g.id for g in item.guids]}"
                     )
-                    self.logger.debug(f"Parsed GUIDs for '{media_name}': {guids}")
+                    self.logger.debug(f"Item GUID: {getattr(item, 'guid', 'N/A')}")
 
-                    # Prioritize which ID to use
-                    id_to_use, source = None, None
-                    if "tmdb" in guids:
-                        id_to_use, source = guids["tmdb"], "tmdb_id"
-                    elif "imdb" in guids:
-                        id_to_use, source = guids["imdb"], "imdb_id"
-                    elif "tvdb" in guids:
-                        id_to_use, source = guids["tvdb"], "tvdb_id"
+                    # Primary: Check item.guids
+                    if item.guids:
+                        guids = {
+                            guid.id.split("://")[0]
+                            .replace("themoviedb", "tmdb")
+                            .replace("thetvdb", "tvdb"): guid.id.split("://")[1]
+                            .split("?")[0]
+                            for guid in item.guids
+                        }
+                        if "tmdb" in guids:
+                            id_to_use, source = guids["tmdb"], "tmdb_id"
+                        elif "imdb" in guids:
+                            id_to_use, source = guids["imdb"], "imdb_id"
+                        elif "tvdb" in guids:
+                            id_to_use, source = guids["tvdb"], "tvdb_id"
+
+                    # Fallback: Check item.guid for Hama agent format
+                    if not id_to_use and hasattr(item, "guid") and "hama" in item.guid:
+                        try:
+                            if "tvdb-" in item.guid:
+                                id_to_use = item.guid.split("tvdb-")[1].split("?")[0]
+                                source = "tvdb_id"
+                        except IndexError:
+                            self.logger.debug(
+                                f"Could not parse TVDB ID from Hama GUID: {item.guid}"
+                            )
 
                     if id_to_use and source:
                         media_ids.append((id_to_use, media_name, source, media_type))
                         folder_map[id_to_use].append((lib_name, media_type))
                     else:
                         self.logger.warning(
-                            f"No usable ID found for '{media_name}' in Plex library '{lib_name}'"
+                            f"No usable ID found for '{media_name}'. "
+                            f"Run in debug mode to see all GUIDs."
+                        )
+                        self.logger.debug(
+                            f"Supported IDs: TVDB, TMDB, IMDB. Found: {[g.id for g in item.guids]}. "
+                            f"Consider changing the agent or opening an issue on GitHub."
                         )
             except Exception as e:
                 self.logger.error(f"Error scanning library '{lib_name}': {e}")
