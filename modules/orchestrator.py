@@ -250,11 +250,10 @@ def run(
     logger.info("👤 Starting Chrome WebDriver...")
     from modules.scraper import MediuxLoginManager, WebDriverManager
 
-    driver = None
     webdriver_manager = WebDriverManager(config_path)
 
     try:
-        driver = webdriver_manager.init_driver(
+        webdriver_manager.init_driver(
             headless=headless,
             profile_path=profile_path,
             chromedriver_path=chromedriver_path,
@@ -306,7 +305,7 @@ def run(
                     webdriver_manager.safe_quit_driver()
 
                     # Initialize new driver with enhanced stability options
-                    driver = webdriver_manager.init_driver(
+                    webdriver_manager.init_driver(
                         headless=headless,
                         profile_path=profile_path,
                         chromedriver_path=chromedriver_path,

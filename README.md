@@ -68,7 +68,7 @@ Here’s an example `docker-compose.yml` file (also available in the repository)
 ```yaml
 services:
   scrape-mediux:
-    image: docker.io/zhyph/scrape-mediux
+    image: docker.io/zhyph/scrape-mediux:latest
     container_name: scrape-mediux
     environment:
       - TZ=Etc/UTC # Set your timezone
