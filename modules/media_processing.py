@@ -102,6 +102,11 @@ class MediaProcessingPipeline:
                     )
                     return None, None
         else:
+            if not tmdb_client.api_key:
+                logger.error(
+                    f"TMDB API key is missing. Cannot fetch TMDB ID for {media_name}."
+                )
+                return None, None
             try:
                 tmdb_id, media_type_from_fetch = tmdb_client.fetch_tmdb_id(
                     media_id=media_id_from_folder,
@@ -250,7 +255,6 @@ class MediaProcessingPipeline:
     def _scrape_and_process_mediux_data(
         self,
         *,
-        driver,
         tmdb_id,
         media_type,
         media_name,
@@ -269,7 +273,6 @@ class MediaProcessingPipeline:
         scraper = MediuxScraper()
 
         new_raw_yaml = scraper.scrape_mediux(
-            driver=driver,
             tmdb_id=tmdb_id,
             media_type=media_type,
             retry_on_yaml_failure=retry_on_yaml_failure,
@@ -614,7 +617,6 @@ def process_single_media_item(
     folder_bulk_data = context.folder_bulk_data
     updated_titles_list = context.updated_titles_list
     fixed_titles_list = context.fixed_titles_list
-    driver = context.driver
 
     # Log the start of processing immediately
     media_separator = "=" * 60
@@ -691,7 +693,6 @@ def process_single_media_item(
 
     # Scrape and process Mediux data
     new_raw_yaml = pipeline._scrape_and_process_mediux_data(
-        driver=driver,
         tmdb_id=tmdb_id,
         media_type=media_type,
         media_name=media_name,

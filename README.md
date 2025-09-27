@@ -5,9 +5,6 @@
 - [Mediux Poster Scraper](#mediux-poster-scraper)
   - [Features](#features)
   - [Requirements](#requirements)
-  - [Usage (Docker)](#usage-docker)
-    - [Docker Compose](#docker-compose)
-    - [Running with Docker Compose](#running-with-docker-compose)
   - [Installation (Local)](#installation-local)
   - [Configuration](#configuration)
     - [Copy Example Configuration](#copy-example-configuration)
@@ -27,8 +24,10 @@
     - [Browser Issues](#browser-issues)
   - [Usage (Local)](#usage-local)
     - [Command-line Arguments (Optional)](#command-line-arguments-optional)
-  - [Legacy](#legacy)
-  <!--toc:end-->
+  - [Usage (Docker)](#usage-docker)
+    - [Docker Compose](#docker-compose)
+    - [Running with Docker Compose](#running-with-docker-compose)
+    <!--toc:end-->
 
 This script automates the process of scraping movie and TV show poster data from the Mediux website using IMDb, TVDB or TMDB IDs to find corresponding movies/shows. It logs in to Mediux, fetches YAML data containing poster URLs, and extracts unique set URLs to a separate file.
 

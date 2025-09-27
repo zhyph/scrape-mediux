@@ -219,6 +219,10 @@ class ConfigManager:
         root_logger.addHandler(console_handler)
         root_logger.addHandler(file_handler)
 
+        # Suppress verbose logs from libraries
+        logging.getLogger("selenium").setLevel(logging.INFO)
+        logging.getLogger("urllib3").setLevel(logging.INFO)
+
         # Custom log levels for user experience
         logging.addLevelName(25, "USER")  # Between INFO (20) and WARNING (30)
         logging.addLevelName(15, "DETAIL")  # Between DEBUG (10) and INFO (20)

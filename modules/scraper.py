@@ -32,12 +32,19 @@ logger = logging.getLogger(__name__)
 
 
 class WebDriverManager:
-    """Manages WebDriver initialization and lifecycle with enhanced stability."""
+    _instance = None
+    _driver = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(WebDriverManager, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self, config_path: Optional[str] = None):
-        self.config_path = config_path
-        self.logger = logging.getLogger(__name__)
-        self.current_driver = None
+        if not hasattr(self, "initialized"):
+            self.config_path = config_path
+            self.logger = logging.getLogger(__name__)
+            self.initialized = True
 
     def setup_chrome_options(
         self,
@@ -90,6 +97,13 @@ class WebDriverManager:
         )
         options.add_argument("--disable-logging")
         options.add_argument("--disable-logging-redirect")
+        options.add_argument("--log-level=3")
+        options.add_argument("--silent")
+
+        # Crashpad and error reporting
+        options.add_argument("--disable-crash-reporter")
+        options.add_argument("--disable-in-process-stack-traces")
+        options.add_argument("--disable-breakpad")
 
         # Performance optimizations
         options.add_argument("--prerender=disabled")
@@ -113,6 +127,10 @@ class WebDriverManager:
         options.add_argument("--disable-gpu-compositing")
         options.add_argument("--disable-gpu-rasterization")
 
+        # Experimental options
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+
         return options
 
     def init_driver(
@@ -135,6 +153,8 @@ class WebDriverManager:
         Raises:
             Exception: If WebDriver initialization fails
         """
+        if WebDriverManager._driver:
+            return WebDriverManager._driver
 
         # Setup optimized Chrome options
         options = self.setup_chrome_options(
@@ -191,37 +211,38 @@ class WebDriverManager:
                 },
             )
 
-            self.current_driver = driver
+            WebDriverManager._driver = driver
             return driver
 
         except Exception as e:
             self.logger.error(f"Failed to initialize WebDriver after all retries: {e}")
             raise
 
-    def safe_quit_driver(self, driver: Optional[WebDriver] = None) -> None:
-        """Safely quit a WebDriver instance and clean up processes."""
-        target_driver = driver or self.current_driver
-
-        if target_driver is None:
+    def safe_quit_driver(self) -> None:
+        """Safely quit the WebDriver instance and clean up processes."""
+        if WebDriverManager._driver is None:
             return
 
         try:
-            target_driver.quit()
+            WebDriverManager._driver.quit()
             self.logger.debug("WebDriver quit successfully")
         except Exception as e:
             self.logger.warning(f"Error during driver quit: {e}")
         finally:
-            if target_driver == self.current_driver:
-                self.current_driver = None
+            WebDriverManager._driver = None
 
-    def take_screenshot(self, driver: WebDriver, name: str) -> None:
+    def take_screenshot(self, name: str) -> None:
         """
         Take a screenshot and save it to the screenshots directory.
 
         Args:
-            driver: WebDriver instance
             name: Name for the screenshot file
         """
+        driver = WebDriverManager._driver
+        if driver is None:
+            self.logger.warning("WebDriver not initialized. Cannot take screenshot.")
+            return
+
         screenshot_enabled = os.environ.get("SCREENSHOT") == "1"
         if not screenshot_enabled:
             return
@@ -250,14 +271,11 @@ class MediuxLoginManager:
         self.webdriver_manager = webdriver_manager
         self.logger = logging.getLogger(__name__)
 
-    def login(
-        self, driver: WebDriver, username: str, password: str, nickname: str
-    ) -> None:
+    def login(self, username: str, password: str, nickname: str) -> None:
         """
         Log into Mediux using provided credentials.
 
         Args:
-            driver: WebDriver instance
             username: Mediux username
             password: Mediux password
             nickname: Mediux nickname to verify login
@@ -265,6 +283,9 @@ class MediuxLoginManager:
         Raises:
             Exception: If login fails
         """
+        driver = WebDriverManager._driver
+        if not driver:
+            raise RuntimeError("WebDriver not initialized. Cannot login.")
         self.logger.debug("Checking login status on Mediux...")
         driver.get(MediuxConfig.BASE_URL)
 
@@ -323,7 +344,7 @@ class MediuxLoginManager:
 
         except Exception as e:
             if self.webdriver_manager:
-                self.webdriver_manager.take_screenshot(driver, "error_login")
+                self.webdriver_manager.take_screenshot("error_login")
             self.logger.error(f"Failed to log into Mediux: {e}")
             raise
 
@@ -616,7 +637,6 @@ class MediuxScraper:
 
     def scrape_mediux(
         self,
-        driver: WebDriver,
         tmdb_id: str,
         media_type: str,
         retry_on_yaml_failure: bool = False,
@@ -628,7 +648,6 @@ class MediuxScraper:
         Scrape YAML data from Mediux page with intelligent caching.
 
         Args:
-            driver: WebDriver instance
             tmdb_id: TMDB ID to scrape
             media_type: Type of media ('movie' or 'tv')
             retry_on_yaml_failure: Whether to retry on YAML extraction failure
@@ -638,6 +657,9 @@ class MediuxScraper:
         Returns:
             YAML data as string, empty string if extraction fails
         """
+        driver = WebDriverManager._driver
+        if not driver:
+            raise RuntimeError("WebDriver not initialized. Cannot scrape.")
 
         self.logger.info(
             f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}"
@@ -743,7 +765,6 @@ class MediuxScraper:
                 time.sleep(WebAutomationConstants.BRIEF_DELAY)
                 # Recursive call for retry - do not cache intermediate results
                 return self.scrape_mediux(
-                    driver=driver,
                     tmdb_id=tmdb_id,
                     media_type=media_type,
                     retry_on_yaml_failure=False,  # Prevent infinite retry
