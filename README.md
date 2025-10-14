@@ -174,7 +174,17 @@ cp config.example.json config.json
   "default_cache_ttl": 3600,
   "max_cache_memory_mb": 50.0,
   "memory_check_interval": 100,
-  "disable_ssl_verification": false
+  "disable_ssl_verification": false,
+  "namespace_configs": {
+    "tmdb_api": {
+      "max_size": 5000,
+      "default_ttl": null
+    },
+    "sonarr_api": {
+      "max_size": 2000,
+      "default_ttl": 86400
+    }
+  }
 }
 ```
 
@@ -210,6 +220,7 @@ cp config.example.json config.json
 - **`max_cache_memory_mb`**: Maximum memory usage in MB before triggering cleanup. Can also be set via `--max_cache_memory_mb` command line option. Defaults to `50.0`.
 - **`memory_check_interval`**: Check memory usage every N operations. Can also be set via `--memory_check_interval` command line option. Defaults to `100`.
 - **`disable_ssl_verification`**: A boolean value (`true` or `false`) to disable SSL certificate verification for HTTPS requests. Useful for local HTTPS setups or when certificate verification is causing issues. Defaults to `false`. Use with caution, as this reduces security.
+- **`namespace_configs`**: A JSON object for configuring cache settings for specific namespaces. This allows you to override the default cache settings for different types of data. The example above shows configurations for `tmdb_api` and `sonarr_api`.
 
 </details>
 

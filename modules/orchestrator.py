@@ -94,6 +94,11 @@ def run(
     disable_cache=False,
     clear_cache=False,
     cache_dir=FileSystemConstants.OUTPUT_DIR_DEFAULT,
+    max_cache_size=1000,
+    default_cache_ttl=3600,
+    max_cache_memory_mb=50.0,
+    memory_check_interval=100,
+    namespace_configs=None,
 ):
     """Main execution function."""
     # Create centralized scraper context
@@ -104,6 +109,11 @@ def run(
         disable_cache=disable_cache,
         clear_cache=clear_cache,
         cache_dir=cache_dir,
+        max_cache_size=max_cache_size,
+        default_cache_ttl=default_cache_ttl,
+        max_cache_memory_mb=max_cache_memory_mb,
+        memory_check_interval=memory_check_interval,
+        namespace_configs=namespace_configs,
     )
     set_global_cache_manager(cache_manager)
 

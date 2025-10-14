@@ -289,13 +289,12 @@ class ConfigManager:
             type=str,
             help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
         )
-
-        # DEPRECATED - Keep for error message
         parser.add_argument(
             "--folders",
             nargs="*",
             help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
         )
+
         parser.add_argument(
             "--headless",
             action=argparse.BooleanOptionalAction,
@@ -393,6 +392,12 @@ class ConfigManager:
             type=int,
             help="Check memory usage every N operations (default: 100)",
         )
+        parser.add_argument(
+            "--namespace_configs",
+            type=str,
+            help="JSON string for namespace-specific cache configurations (advanced)",
+        )
+
         parser.add_argument(
             "--disable_ssl_verification",
             action=argparse.BooleanOptionalAction,
@@ -647,6 +652,13 @@ class ConfigManager:
                 file_config=file_config,
                 default_val=False,
                 is_bool=True,
+            ),
+            "namespace_configs": self._resolve_config_value(
+                arg_val=None,  # Only load from file
+                env_var_name="NAMESPACE_CONFIGS",
+                config_key="namespace_configs",
+                file_config=file_config,
+                default_val=None,
             ),
         }
 

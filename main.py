@@ -87,6 +87,11 @@ def main():
             "cache_dir": app_settings.get(
                 "cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT
             ),
+            "max_cache_size": app_settings.get("max_cache_size"),
+            "default_cache_ttl": app_settings.get("default_cache_ttl"),
+            "max_cache_memory_mb": app_settings.get("max_cache_memory_mb"),
+            "memory_check_interval": app_settings.get("memory_check_interval"),
+            "namespace_configs": app_settings.get("namespace_configs"),
         }
 
         if app_settings["cron_expression"]:
