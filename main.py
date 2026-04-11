@@ -35,6 +35,13 @@ def main():
     # Parse configuration
     app_settings = config_manager.parse_arguments_and_load_config()
 
+    # Validate configuration (raises ValueError with a clear message on failure)
+    try:
+        config_manager.validate_config(app_settings)
+    except ValueError as e:
+        logger.error(str(e))
+        exit(1)
+
     # Configure global HTTP session
     from modules.http_client import configure_global_session
 

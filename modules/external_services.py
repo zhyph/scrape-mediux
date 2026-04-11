@@ -18,6 +18,8 @@ from modules.intelligent_cache import get_cache_manager
 
 logger = logging.getLogger(__name__)
 
+_DISCORD_RATE_LIMIT_DEFAULT_WAIT_SECONDS = 300  # 5 minutes
+
 
 class DiscordNotifier:
     """Handles Discord webhook notifications."""
@@ -27,7 +29,7 @@ class DiscordNotifier:
 
     def send_notification(
         self, webhook_url: Optional[str], message: str
-    ) -> tuple[bool, Optional[int]]:
+    ) -> Tuple[bool, Optional[int]]:
         """
         Send a notification to Discord webhook.
 
@@ -65,11 +67,13 @@ class DiscordNotifier:
         except requests.exceptions.HTTPError as e:
             if hasattr(e, "response") and e.response and e.response.status_code == 429:
                 # Rate limit exceeded
-                retry_after = e.response.headers.get("Retry-After", "300")
+                retry_after = e.response.headers.get(
+                        "Retry-After", str(_DISCORD_RATE_LIMIT_DEFAULT_WAIT_SECONDS)
+                    )
                 try:
                     wait_time = int(retry_after)
                 except ValueError:
-                    wait_time = 300  # Default to 5 minutes if invalid
+                    wait_time = _DISCORD_RATE_LIMIT_DEFAULT_WAIT_SECONDS
                 self.logger.warning(
                     f"Discord rate limit hit! Waiting {wait_time} seconds until retry."
                 )
@@ -83,7 +87,9 @@ class DiscordNotifier:
 
     @staticmethod
     def send_rate_limited_message(
-        webhook_url: Optional[str], total_titles: int, wait_time: int = 300
+        webhook_url: Optional[str],
+        total_titles: int,
+        wait_time: int = _DISCORD_RATE_LIMIT_DEFAULT_WAIT_SECONDS,
     ) -> None:
         """
         Send a final message when the report was too long and got rate limited.

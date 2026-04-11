@@ -5,10 +5,31 @@ This module provides common base classes and utilities used across the scraper.
 """
 
 import logging
+import sys
 from collections import defaultdict
 from typing import Optional, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
+
+
+def _exit_with_error(
+    message: str,
+    log: Optional[logging.Logger] = None,
+    code: int = 1,
+) -> None:
+    """Log an error and exit.
+
+    Args:
+        message: Error message to display.
+        log: Logger to use. Falls back to stderr if None.
+        code: Exit code (default 1).
+    """
+    if log:
+        log.error(message)
+    else:
+        print(message, file=sys.stderr)
+    sys.exit(code)
+
 
 if TYPE_CHECKING:
     from modules.intelligent_cache import CacheManager

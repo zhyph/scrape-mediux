@@ -14,8 +14,29 @@ from croniter import croniter
 logger = logging.getLogger(__name__)
 
 
-def schedule_run(*, cron_expression, args_dict):
-    """Schedule script execution using cron expression."""
+def schedule_run(*, cron_expression: str, args_dict: dict) -> None:
+    """Schedule recurring scraper runs using a cron expression.
+
+    Runs indefinitely, checking every 60 seconds whether the next scheduled
+    time has been reached and executing ``orchestrator.run()`` with the
+    provided arguments when it has.
+
+    Args:
+        cron_expression: A valid cron expression (e.g. ``"0 2 * * *"`` for
+            daily at 02:00). Timezone is determined by the ``TZ`` environment
+            variable or the system default.
+        args_dict: Keyword arguments forwarded verbatim to
+            :func:`modules.orchestrator.run`. Must include at minimum
+            ``api_key``, ``username``, ``password``, and ``nickname``.
+
+    Raises:
+        croniter.CroniterBadCronError: If ``cron_expression`` is invalid.
+
+    Note:
+        This function loops forever. Errors raised inside a scheduled run are
+        caught and logged so that the scheduler continues to the next
+        scheduled interval rather than exiting.
+    """
     logger.info(f"Scheduling script with cron expression: {cron_expression}")
     base_time = datetime.now()
     logger.info(f"Current time: {base_time}")

@@ -584,6 +584,21 @@ class MediaProcessingPipeline:
             new_data[folder_name][tmdb_id] = final_yaml_data
 
 
+def _log_media_header(media_name: str, media_id_from_folder, folder_map_for_media) -> None:
+    """Log the start-of-processing header for a single media item."""
+    media_separator = "=" * 60
+    library_name = "Unknown"
+    if folder_map_for_media and media_id_from_folder:
+        folder_entries = folder_map_for_media.get(media_id_from_folder, [])
+        if folder_entries:
+            first_entry = folder_entries[0]
+            library_name = first_entry[0] if isinstance(first_entry, tuple) else first_entry
+    logger.info(media_separator)
+    logger.info(f"🎬 STARTING: {media_name} [Library: {library_name}]")
+    logger.info(f"   Source ID: {media_id_from_folder}")
+    logger.info(media_separator)
+
+
 def process_single_media_item(
     *,
     media_id_from_folder,
@@ -618,29 +633,11 @@ def process_single_media_item(
     updated_titles_list = context.updated_titles_list
     fixed_titles_list = context.fixed_titles_list
 
-    # Log the start of processing immediately
-    media_separator = "=" * 60
-    logger.info(f"{media_separator}")
-    # Get library/folder name from folder_map_for_media
-    library_name = "Unknown"
-    if folder_map_for_media and media_id_from_folder:
-        folder_entries = folder_map_for_media.get(media_id_from_folder, [])
-        if folder_entries:
-            # Handle both Plex (tuple) and folder scanning (string) cases
-            first_entry = folder_entries[0]
-            if isinstance(first_entry, tuple):
-                library_name = first_entry[0]  # Plex case: (lib_name, media_type)
-            else:
-                library_name = first_entry  # Folder scanning case: just the folder name
-
-    logger.info(f"🎬 STARTING: {media_name} [Library: {library_name}]")
-    logger.info(f"   Source ID: {media_id_from_folder}")
-    logger.info(f"{media_separator}")
-
-    # Create pipeline instance and initialize services
     pipeline = MediaProcessingPipeline()
     tmdb_client = ServiceFactory.get_tmdb_client(config.api_key)
     comparison_engine = ServiceFactory.get_comparison_engine()
+
+    _log_media_header(media_name, media_id_from_folder, folder_map_for_media)
 
     # Resolve TMDB ID and media type
     tmdb_id, media_type = pipeline._resolve_tmdb_id(
@@ -686,9 +683,7 @@ def process_single_media_item(
     )
 
     if should_skip:
-        # Add completion marker for skipped items
-        media_separator = "=" * 60
-        logger.info(f"{media_separator}\n")
+        logger.info(f"{'=' * 60}\n")
         return
 
     # Scrape and process Mediux data
@@ -738,6 +733,5 @@ def process_single_media_item(
     )
 
     # Mark completion of this media item with prominent separator
-    media_separator = "=" * 60
     logger.info(f"✅ COMPLETED: {media_name}")
-    logger.info(f"{media_separator}\n")
+    logger.info(f"{'=' * 60}\n")
