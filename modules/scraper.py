@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
@@ -185,7 +185,7 @@ class WebDriverManager:
                         self.logger.warning(
                             f"WebDriver initialization attempt {attempt + 1} failed: {e}"
                         )
-                        time.sleep(2)
+                        time.sleep(1)
                         driver = None
                         continue
                     else:
@@ -554,23 +554,31 @@ class MediuxScraper:
         self.logger.info(
             f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
         )
-        for user in preferred_users:
-            for button in buttons:
-                try:
-                    ancestor_div = button.find_element(
-                        By.XPATH,
-                        "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
-                    )
-                    user_link = ancestor_div.find_element(
-                        By.XPATH, f".//a[@href='/user/{user.lower()}']"
-                    )
-                    if user_link.find_element(
-                        By.XPATH, f"./button[contains(., '{user}')]"
-                    ):
-                        self.logger.info(f"Using YAML from preferred user: {user}")
-                        return button
-                except Exception:
-                    continue
+        # Extract username from each button once (O(m) Selenium queries)
+        button_usernames: Dict[int, str] = {}
+        for i, button in enumerate(buttons):
+            try:
+                ancestor_div = button.find_element(
+                    By.XPATH,
+                    "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                )
+                user_link = ancestor_div.find_element(
+                    By.XPATH, ".//a[contains(@href, '/user/')]"
+                )
+                href = user_link.get_attribute("href") or ""
+                username = href.rstrip("/").rsplit("/", 1)[-1].lower()
+                if username:
+                    button_usernames[i] = username
+            except Exception:
+                continue
+
+        # Match in preferred-user priority order (O(n*m) string comparison only)
+        preferred_lower = [u.lower() for u in preferred_users]
+        for user_lower, user_display in zip(preferred_lower, preferred_users):
+            for i, username in button_usernames.items():
+                if username == user_lower:
+                    self.logger.info(f"Using YAML from preferred user: {user_display}")
+                    return buttons[i]
         return None
 
     def find_yaml_button(
