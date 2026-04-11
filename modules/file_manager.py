@@ -101,10 +101,10 @@ class FileWriter(CachedService):
             return existing_urls
 
         # Scan all YAML files in the kometa directory
+        bulk_manager = BulkDataManager()
         for filename in os.listdir(kometa_dir):
             if filename.endswith(FileSystemConstants.DATA_FILE_SUFFIX):
                 file_path = os.path.join(kometa_dir, filename)
-                bulk_manager = BulkDataManager()
                 file_urls = bulk_manager.load_bulk_data(
                     bulk_data_file=file_path, only_set_urls=True
                 )
