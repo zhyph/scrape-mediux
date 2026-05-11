@@ -286,6 +286,55 @@ class YAMLStructureProcessor(CachedService):
         result = (processed_yaml, True)
         return result
 
+    def remap_null_top_level_key(
+        self, yaml_string: str, expected_id: str, media_name: str
+    ) -> Tuple[str, bool]:
+        """
+        Detect a null top-level key in a YAML string and remap it to the
+        expected media ID. This happens when Mediux has no TVDB ID for a
+        show and emits ``null:`` as the root key, which Kometa rejects.
+
+        Args:
+            yaml_string: Raw YAML string returned by the scraper.
+            expected_id: The correct ID to use as the top-level key
+                         (tvdb_id for TV, tmdb_id for movies).
+            media_name: Human-readable name used in log messages.
+
+        Returns:
+            Tuple of (possibly-modified yaml string, bool indicating whether
+            remapping occurred).
+        """
+        if not yaml_string or not expected_id:
+            return yaml_string, False
+
+        try:
+            from modules.config import yaml_parser
+            from io import StringIO
+
+            parsed = yaml_parser.load(yaml_string)
+            if not isinstance(parsed, dict) or None not in parsed:
+                return yaml_string, False
+
+            self.logger.warning(
+                f"⚠️  Mediux returned a null top-level key for '{media_name}'. "
+                f"Re-keying to '{expected_id}'."
+            )
+
+            remapped = {}
+            for key, value in parsed.items():
+                remapped[expected_id if key is None else key] = value
+
+            stream = StringIO()
+            yaml_parser.dump(remapped, stream)
+            return stream.getvalue(), True
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to remap null key for '{media_name}': {e}. "
+                f"Returning original YAML string."
+            )
+            return yaml_string, False
+
 
 class DataComparisonEngine(CachedService):
     """Handles comparison of YAML data and change detection."""
