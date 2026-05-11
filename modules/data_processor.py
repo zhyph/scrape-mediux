@@ -230,9 +230,10 @@ class YAMLStructureProcessor(CachedService):
 
     _SEASONS_RE = re.compile(r"^(?P<indent>\s*)seasons:", re.MULTILINE)
 
-    def __init__(self, cache_manager=None):
+    def __init__(self, cache_manager=None, yaml_service=None):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service is not None else YAMLService()
 
     def preprocess_yaml_string(self, yaml_string: str) -> Tuple[str, bool]:
         """
@@ -308,15 +309,12 @@ class YAMLStructureProcessor(CachedService):
             return yaml_string, False
 
         try:
-            from modules.config import yaml_parser
-            from io import StringIO
-
-            parsed = yaml_parser.load(yaml_string)
+            parsed = self.yaml_service.load_from_string(yaml_string)
             if not isinstance(parsed, dict) or None not in parsed:
                 return yaml_string, False
 
             self.logger.warning(
-                f"⚠️  Mediux returned a null top-level key for '{media_name}'. "
+                f"Mediux returned a null top-level key for '{media_name}'. "
                 f"Re-keying to '{expected_id}'."
             )
 
@@ -324,9 +322,10 @@ class YAMLStructureProcessor(CachedService):
             for key, value in parsed.items():
                 remapped[expected_id if key is None else key] = value
 
-            stream = StringIO()
-            yaml_parser.dump(remapped, stream)
-            return stream.getvalue(), True
+            result = self.yaml_service.dump_to_string(remapped)
+            if result is None:
+                raise ValueError("YAMLService.dump_to_string returned None")
+            return result, True
 
         except Exception as e:
             self.logger.error(
