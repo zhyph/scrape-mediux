@@ -318,9 +318,10 @@ class YAMLStructureProcessor(CachedService):
                 f"Re-keying to '{expected_id}'."
             )
 
+            typed_key = int(expected_id) if str(expected_id).isdigit() else expected_id
             remapped = {}
             for key, value in parsed.items():
-                remapped[expected_id if key is None else key] = value
+                remapped[typed_key if key is None else key] = value
 
             result = self.yaml_service.dump_to_string(remapped)
             if result is None:
