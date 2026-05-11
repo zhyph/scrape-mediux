@@ -287,6 +287,20 @@ class MediaProcessingPipeline:
             )
             return None
 
+        # Remap null top-level key (Mediux emits null when TVDB ID is absent)
+        expected_id = str(tvdb_id_for_tv) if media_type == "tv" and tvdb_id_for_tv else str(tmdb_id)
+        from modules.data_processor import YAMLStructureProcessor
+        structure_processor = YAMLStructureProcessor()
+        new_raw_yaml, was_remapped = structure_processor.remap_null_top_level_key(
+            yaml_string=new_raw_yaml,
+            expected_id=expected_id,
+            media_name=media_name,
+        )
+        if was_remapped:
+            logger.info(
+                f"🔑 Null key remapped to '{expected_id}' for '{media_name}' (TMDB: {tmdb_id})."
+            )
+
         # Process YAML structure for TV shows if needed
         if media_type == "tv":
             is_malformed = self._check_tv_yaml_structure(new_raw_yaml, media_name)

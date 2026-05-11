@@ -230,9 +230,10 @@ class YAMLStructureProcessor(CachedService):
 
     _SEASONS_RE = re.compile(r"^(?P<indent>\s*)seasons:", re.MULTILINE)
 
-    def __init__(self, cache_manager=None):
+    def __init__(self, yaml_service=None, cache_manager=None):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
 
     def preprocess_yaml_string(self, yaml_string: str) -> Tuple[str, bool]:
         """
@@ -285,6 +286,58 @@ class YAMLStructureProcessor(CachedService):
 
         result = (processed_yaml, True)
         return result
+
+    def remap_null_top_level_key(
+        self, yaml_string: str, expected_id: str, media_name: str
+    ) -> Tuple[str, bool]:
+        """
+        Detect a null top-level key in a YAML string and remap it to the
+        expected media ID. This happens when Mediux has no TVDB ID for a
+        show and emits ``null:`` as the root key, which Kometa rejects.
+
+        Args:
+            yaml_string: Raw YAML string returned by the scraper.
+            expected_id: The correct ID to use as the top-level key
+                         (tvdb_id for TV, tmdb_id for movies).
+            media_name: Human-readable name used in log messages.
+
+        Returns:
+            Tuple of (possibly-modified yaml string, bool indicating whether
+            remapping occurred).
+        """
+        if not yaml_string or not expected_id:
+            return yaml_string, False
+
+        try:
+            parsed = self.yaml_service.load_from_string(yaml_string)
+            if not isinstance(parsed, dict) or None not in parsed:
+                return yaml_string, False
+
+            self.logger.warning(
+                f"Mediux returned a null top-level key for '{media_name}'. "
+                f"Re-keying to '{expected_id}'."
+            )
+
+            typed_key = int(expected_id) if str(expected_id).isdigit() else expected_id
+            remapped = {}
+            for key, value in parsed.items():
+                remapped[typed_key if key is None else key] = value
+
+            result = self.yaml_service.dump_to_string(remapped)
+            if result is None:
+                self.logger.error(
+                    f"Failed to serialize remapped YAML for '{media_name}'. "
+                    f"Returning original YAML string."
+                )
+                return yaml_string, False
+            return result, True
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to remap null key for '{media_name}': {e}. "
+                f"Returning original YAML string."
+            )
+            return yaml_string, False
 
 
 class DataComparisonEngine(CachedService):
