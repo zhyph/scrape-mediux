@@ -230,10 +230,10 @@ class YAMLStructureProcessor(CachedService):
 
     _SEASONS_RE = re.compile(r"^(?P<indent>\s*)seasons:", re.MULTILINE)
 
-    def __init__(self, cache_manager=None, yaml_service=None):
+    def __init__(self, yaml_service=None, cache_manager=None):
         # Initialize parent class (provides self.cache_manager and self.logger)
         super().__init__(cache_manager)
-        self.yaml_service = yaml_service if yaml_service is not None else YAMLService()
+        self.yaml_service = yaml_service if yaml_service else YAMLService()
 
     def preprocess_yaml_string(self, yaml_string: str) -> Tuple[str, bool]:
         """
@@ -324,7 +324,11 @@ class YAMLStructureProcessor(CachedService):
 
             result = self.yaml_service.dump_to_string(remapped)
             if result is None:
-                raise ValueError("YAMLService.dump_to_string returned None")
+                self.logger.error(
+                    f"Failed to serialize remapped YAML for '{media_name}'. "
+                    f"Returning original YAML string."
+                )
+                return yaml_string, False
             return result, True
 
         except Exception as e:
