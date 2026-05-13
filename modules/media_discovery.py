@@ -6,17 +6,38 @@ including Plex API and folder scanning.
 """
 
 import logging
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 def get_media_ids(
     *,
-    plex_url=None,
-    plex_token=None,
-    plex_libraries=None,
-):
-    """Get media IDs using Plex API or folder scanning."""
+    plex_url: Optional[str] = None,
+    plex_token: Optional[str] = None,
+    plex_libraries: Optional[List[str]] = None,
+) -> Tuple[List[Tuple[str, str, str, str]], Dict[str, List[Tuple[str, str]]]]:
+    """
+    Discover media IDs from Plex libraries.
+
+    Attempts to retrieve media IDs from configured Plex libraries. If no
+    libraries are specified but credentials exist, lists available libraries
+    to help with configuration. Raises ValueError when credentials are missing.
+
+    Args:
+        plex_url: Plex server URL (e.g., ``http://localhost:32400``)
+        plex_token: Plex API authentication token
+        plex_libraries: Names of libraries to scan (e.g., ``["Movies", "TV Shows"]``)
+
+    Returns:
+        A tuple of:
+
+        - List of ``(media_id, media_name, source_type, media_type)`` tuples
+        - Dict mapping ``media_id`` to a list of ``(library_name, media_type)`` tuples
+
+    Raises:
+        ValueError: If ``plex_url`` or ``plex_token`` are missing
+    """
     # First priority: Try Plex if all parameters are provided
     if plex_url and plex_token and plex_libraries and len(plex_libraries) > 0:
         try:

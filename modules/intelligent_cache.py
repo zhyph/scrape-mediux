@@ -43,6 +43,8 @@ class CacheEntry:
 class IntelligentCache:
     """Intelligent cache with TTL, memory limits, and statistics."""
 
+    MEMORY_CLEANUP_TARGET_RATIO = 0.7  # Reduce to 70% of max size during cleanup
+
     def __init__(
         self,
         max_size: int = 1000,
@@ -183,7 +185,7 @@ class IntelligentCache:
                 del self.cache[key]
 
             # If still over memory limit, remove least recently used items
-            target_size = int(self.max_size * 0.7)  # Reduce to 70% of max size
+            target_size = int(self.max_size * self.MEMORY_CLEANUP_TARGET_RATIO)
             while len(self.cache) > target_size and len(self.cache) > 0:
                 self.cache.popitem(last=False)
                 self.stats["evictions"] += 1
@@ -433,6 +435,11 @@ class NamespaceCache:
 class CacheManager:
     """High-level cache manager with intelligent caching strategies."""
 
+    @staticmethod
+    def _make_cache_key(*parts: Any) -> str:
+        """Create a consistent colon-joined cache key, replacing None with 'none'."""
+        return ":".join(str(p) if p is not None else "none" for p in parts)
+
     def __init__(
         self,
         default_max_size: int = 1000,
@@ -476,7 +483,7 @@ class CacheManager:
         self, media_id: str, external_source: str
     ) -> Optional[Tuple[str, str]]:
         """Get TMDB ID with intelligent caching."""
-        cache_key = f"{external_source}:{media_id}"
+        cache_key = self._make_cache_key(external_source, media_id)
         result = self.cache.get("tmdb_api", cache_key)
 
         if result is not None:
@@ -490,7 +497,7 @@ class CacheManager:
         self, media_id: str, external_source: str, tmdb_id: str, media_type: str
     ):
         """Set TMDB ID in cache."""
-        cache_key = f"{external_source}:{media_id}"
+        cache_key = self._make_cache_key(external_source, media_id)
         self.cache.set("tmdb_api", cache_key, (tmdb_id, media_type))
         self.logger.debug(f"Cached TMDB ID: {external_source}:{media_id} -> {tmdb_id}")
 
@@ -498,7 +505,7 @@ class CacheManager:
         self, media_name: str, tmdb_id: Optional[str]
     ) -> Optional[Tuple[str, bool]]:
         """Get Sonarr series status with caching."""
-        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
+        cache_key = self._make_cache_key(media_name, tmdb_id)
         result = self.cache.get("sonarr_api", cache_key)
 
         if result is not None:
@@ -516,7 +523,7 @@ class CacheManager:
         ended: Optional[bool],
     ):
         """Set Sonarr series status in cache."""
-        cache_key = f"{media_name}:{str(tmdb_id) if tmdb_id else 'none'}"
+        cache_key = self._make_cache_key(media_name, tmdb_id)
         self.cache.set("sonarr_api", cache_key, (tvdb_id, ended))
         self.logger.debug(f"Cached Sonarr status: {media_name} -> {tvdb_id}, {ended}")
 

@@ -1,0 +1,10 @@
+# Docker-specific requirements — excludes webdriver-manager since the Docker
+# image uses the pre-installed system Chromium/ChromeDriver instead.
+requests==2.33.0
+selenium==4.41.0
+ruamel.yaml==0.19.1
+croniter==6.2.2
+tqdm==4.67.3
+plexapi==4.18.1
+colorama==0.4.6
+psutil==7.2.2

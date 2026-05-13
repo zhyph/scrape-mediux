@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
@@ -29,6 +29,9 @@ from modules.intelligent_cache import get_cache_manager
 from modules.base import WebAutomationConstants, MediuxConfig, WebSelectors
 
 logger = logging.getLogger(__name__)
+
+BROWSER_WINDOW_WIDTH = 1920
+BROWSER_WINDOW_HEIGHT = 1080
 
 
 class WebDriverManager:
@@ -115,7 +118,7 @@ class WebDriverManager:
         # Headless and display settings
         if headless:
             options.add_argument("--headless=new")  # Use new headless mode
-            options.add_argument("--window-size=1920,1080")
+            options.add_argument(f"--window-size={BROWSER_WINDOW_WIDTH},{BROWSER_WINDOW_HEIGHT}")
             options.add_argument("--start-maximized")
 
         # Profile path
@@ -182,7 +185,7 @@ class WebDriverManager:
                         self.logger.warning(
                             f"WebDriver initialization attempt {attempt + 1} failed: {e}"
                         )
-                        time.sleep(2)
+                        time.sleep(1)
                         driver = None
                         continue
                     else:
@@ -510,6 +513,74 @@ class MediuxScraper:
         finally:
             driver.implicitly_wait(original_implicit)
 
+    def _apply_user_exclusions(
+        self,
+        buttons: List[WebElement],
+        excluded_users: List[str],
+    ) -> List[WebElement]:
+        """Return buttons whose associated user is not in the excluded list."""
+        self.logger.info(f"Excluding users: {', '.join(excluded_users)}")
+        filtered = []
+        for button in buttons:
+            try:
+                ancestor_div = button.find_element(
+                    By.XPATH,
+                    "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                )
+                user_link = ancestor_div.find_element(
+                    By.XPATH, ".//a[contains(@href, '/user/')]"
+                )
+                user_href = user_link.get_attribute("href")
+                if user_href:
+                    match = re.search(r"/user/([^/]+)", user_href)
+                    if match:
+                        username = match.group(1)
+                        if username.lower() in [u.lower() for u in excluded_users]:
+                            self.logger.debug(
+                                f"Excluding YAML button from user: {username}"
+                            )
+                            continue
+            except Exception:
+                pass
+            filtered.append(button)
+        return filtered
+
+    def _find_preferred_user_button(
+        self,
+        buttons: List[WebElement],
+        preferred_users: List[str],
+    ) -> Optional[WebElement]:
+        """Return the first button belonging to a preferred user, or None."""
+        self.logger.info(
+            f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
+        )
+        # Extract username from each button once (O(m) Selenium queries)
+        button_usernames: Dict[int, str] = {}
+        for i, button in enumerate(buttons):
+            try:
+                ancestor_div = button.find_element(
+                    By.XPATH,
+                    "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
+                )
+                user_link = ancestor_div.find_element(
+                    By.XPATH, ".//a[contains(@href, '/user/')]"
+                )
+                href = user_link.get_attribute("href") or ""
+                username = href.rstrip("/").rsplit("/", 1)[-1].lower()
+                if username:
+                    button_usernames[i] = username
+            except Exception:
+                continue
+
+        # Match in preferred-user priority order (O(n*m) string comparison only)
+        preferred_lower = [u.lower() for u in preferred_users]
+        for user_lower, user_display in zip(preferred_lower, preferred_users):
+            for i, username in button_usernames.items():
+                if username == user_lower:
+                    self.logger.info(f"Using YAML from preferred user: {user_display}")
+                    return buttons[i]
+        return None
+
     def find_yaml_button(
         self,
         driver: WebDriver,
@@ -529,20 +600,15 @@ class MediuxScraper:
         Returns:
             WebElement of the selected YAML button or None
         """
-        # Temporarily disable implicit wait for instant checks
         original_implicit = WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT
         driver.implicitly_wait(0)
 
-        yaml_button = None
-
         try:
-            # Quick check to avoid 5-second wait if no YAML buttons are present
             quick_buttons = driver.find_elements(By.XPATH, yaml_xpath)
             if not quick_buttons:
                 self.logger.debug(
                     "No YAML buttons found instantly, likely no YAML available"
                 )
-                driver.implicitly_wait(original_implicit)
                 return None
             all_yaml_buttons = WebDriverWait(
                 driver,
@@ -551,89 +617,80 @@ class MediuxScraper:
         except TimeoutException:
             self.logger.warning("No YAML buttons found on the page.")
             return None
+        finally:
+            driver.implicitly_wait(original_implicit)
 
         if not all_yaml_buttons:
             self.logger.warning("No YAML buttons found on the page.")
             return None
 
-        # Filter excluded users
         if excluded_users:
-            self.logger.info(f"Excluding users: {', '.join(excluded_users)}")
-            filtered_buttons = []
-            for button in all_yaml_buttons:
-                try:
-                    ancestor_div = button.find_element(
-                        By.XPATH,
-                        "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
-                    )
-                    user_link_element = ancestor_div.find_element(
-                        By.XPATH, ".//a[contains(@href, '/user/')]"
-                    )
-                    user_href = user_link_element.get_attribute("href")
-                    if user_href:
-                        username_match = re.search(r"/user/([^/]+)", user_href)
-                        if username_match:
-                            username = username_match.group(1)
-                            if username.lower() not in [
-                                ex_user.lower() for ex_user in excluded_users
-                            ]:
-                                filtered_buttons.append(button)
-                            else:
-                                self.logger.debug(
-                                    f"Excluding YAML button from user: {username}"
-                                )
-                        else:
-                            filtered_buttons.append(button)
-                    else:
-                        filtered_buttons.append(button)
-                except Exception:
-                    filtered_buttons.append(button)
-            all_yaml_buttons = filtered_buttons
-
+            all_yaml_buttons = self._apply_user_exclusions(all_yaml_buttons, excluded_users)
             if not all_yaml_buttons:
-                self.logger.warning(
-                    "No YAML buttons left after filtering excluded users."
-                )
+                self.logger.warning("No YAML buttons left after filtering excluded users.")
                 return None
 
-        # Try to find preferred user
-        if preferred_users and len(preferred_users) > 0:
-            self.logger.info(
-                f"Searching for YAML from preferred users: {', '.join(preferred_users)}"
-            )
-            for user in preferred_users:
-                for button in all_yaml_buttons:
-                    try:
-                        ancestor_div = button.find_element(
-                            By.XPATH,
-                            "./ancestor::div[contains(@class, 'flex') and .//a[contains(@href, '/user/')]]",
-                        )
-                        user_link_element = ancestor_div.find_element(
-                            By.XPATH, f".//a[@href='/user/{user.lower()}']"
-                        )
-                        user_button_in_link = user_link_element.find_element(
-                            By.XPATH, f"./button[contains(., '{user}')]"
-                        )
-                        if user_button_in_link:
-                            self.logger.info(f"Using YAML from preferred user: {user}")
-                            yaml_button = button
-                            break
-                    except Exception:
-                        continue
-                if yaml_button:
-                    break
+        if preferred_users:
+            yaml_button = self._find_preferred_user_button(all_yaml_buttons, preferred_users)
+            if yaml_button:
+                return yaml_button
 
-        # Fall back to first available button
-        if not yaml_button and all_yaml_buttons:
-            yaml_button = all_yaml_buttons[0]
+        if all_yaml_buttons:
             self.logger.debug("Using first available YAML button (after exclusions).")
-        elif not yaml_button:
-            self.logger.warning(
-                "No suitable YAML button found after considering preferences and exclusions."
-            )
+            return all_yaml_buttons[0]
 
-        driver.implicitly_wait(original_implicit)
-        return yaml_button
+        self.logger.warning(
+            "No suitable YAML button found after considering preferences and exclusions."
+        )
+        return None
+
+    def _check_no_sets_available(
+        self, driver: WebDriver, tmdb_id: str, media_type: str
+    ) -> bool:
+        """Return True if the page shows 'No Sets Available.' and YAML scraping should be skipped."""
+        try:
+            driver.implicitly_wait(0)
+            no_sets = driver.find_elements(
+                By.XPATH, "//div[text()='No Sets Available.']"
+            )
+            if no_sets:
+                self.logger.debug(
+                    f"No Sets Available for {media_type} {tmdb_id} - skipping waits"
+                )
+                return True
+        finally:
+            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
+        return False
+
+    def _click_and_extract_yaml(
+        self, driver: WebDriver, yaml_button: WebElement, tmdb_id: str
+    ) -> str:
+        """Click a YAML button and extract the resulting YAML content string."""
+        driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
+        yaml_button.click()
+        self.logger.info(f"Extracting YAML data for TMDB ID {tmdb_id}")
+
+        yaml_element = WebDriverWait(
+            driver,
+            WebAutomationConstants.YAML_LOAD_TIMEOUT,
+        ).until(EC.presence_of_element_located((By.XPATH, "//code")))
+        WebDriverWait(
+            driver,
+            WebAutomationConstants.YAML_LOAD_TIMEOUT,
+        ).until(
+            lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
+        )
+        yaml_data = yaml_element.get_attribute("innerText")
+
+        if yaml_data is None:
+            self.logger.warning(
+                f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
+                "This might indicate an issue with the page or element structure. Returning empty."
+            )
+            return ""
+
+        self.logger.info(f"YAML data loaded successfully ({len(yaml_data)} characters)")
+        return yaml_data
 
     def scrape_mediux(
         self,
@@ -653,6 +710,7 @@ class MediuxScraper:
             retry_on_yaml_failure: Whether to retry on YAML extraction failure
             preferred_users: List of preferred usernames
             excluded_users: List of usernames to exclude
+            direct_url: Override URL (bypasses TMDB ID → URL construction)
 
         Returns:
             YAML data as string, empty string if extraction fails
@@ -665,10 +723,8 @@ class MediuxScraper:
             f"Scraping Mediux for TMDB ID {tmdb_id}, Media Type: {media_type}"
         )
 
-        # Use direct URL if provided, otherwise construct from TMDB ID
         if direct_url:
             url = direct_url
-            # Use default updating/success texts (assuming movie, but will be detected)
             updating_text = MediuxConfig.MOVIE_UPDATING_TEXT
             success_text = MediuxConfig.MOVIE_UPDATE_SUCCESS
             self.logger.info(f"Using direct URL: {direct_url}")
@@ -685,20 +741,8 @@ class MediuxScraper:
             self.logger.error(f"An error occurred during navigation to {url}: {e}")
             raise
 
-        # Quick check for "No Sets Available" - if present, no YAML exists, skip all waiting
-        try:
-            driver.implicitly_wait(0)  # Disable implicit wait for instant check
-            no_sets_elements = driver.find_elements(
-                By.XPATH, "//div[text()='No Sets Available.']"
-            )
-            if no_sets_elements:
-                self.logger.debug(
-                    f"No Sets Available for {media_type} {tmdb_id} - skipping waits"
-                )
-                driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
-                return ""
-        finally:
-            driver.implicitly_wait(WebAutomationConstants.IMPLICIT_WAIT_TIMEOUT)
+        if self._check_no_sets_available(driver, tmdb_id, media_type):
+            return ""
 
         yaml_xpath = "//button[span[contains(text(), 'YAML')]]"
         time.sleep(WebAutomationConstants.BRIEF_DELAY)
@@ -723,33 +767,7 @@ class MediuxScraper:
                 )
                 return ""
 
-            driver.execute_script("arguments[0].scrollIntoView(true);", yaml_button)
-            yaml_button.click()
-            self.logger.info(f"Extracting YAML data for {media_type} {tmdb_id}")
-
-            yaml_element = WebDriverWait(
-                driver,
-                WebAutomationConstants.YAML_LOAD_TIMEOUT,
-            ).until(EC.presence_of_element_located((By.XPATH, "//code")))
-            WebDriverWait(
-                driver,
-                WebAutomationConstants.YAML_LOAD_TIMEOUT,
-            ).until(
-                lambda d: (yaml_element.get_attribute("innerText") or "").strip() != ""
-            )
-            yaml_data = yaml_element.get_attribute("innerText")
-
-            if yaml_data is None:
-                self.logger.warning(
-                    f"YAML content for TMDB ID {tmdb_id} was unexpectedly None after waiting. "
-                    "This might indicate an issue with the page or element structure. Returning empty."
-                )
-                return ""
-
-            yaml_len = len(yaml_data)
-            self.logger.info(f"YAML data loaded successfully ({yaml_len} characters)")
-
-            return yaml_data
+            return self._click_and_extract_yaml(driver, yaml_button, tmdb_id)
 
         except Exception:
             if not driver.find_elements(By.XPATH, yaml_xpath):
@@ -763,11 +781,10 @@ class MediuxScraper:
                 driver.refresh()
                 self.logger.debug(f"Page refreshed for TMDB ID {tmdb_id}")
                 time.sleep(WebAutomationConstants.BRIEF_DELAY)
-                # Recursive call for retry - do not cache intermediate results
                 return self.scrape_mediux(
                     tmdb_id=tmdb_id,
                     media_type=media_type,
-                    retry_on_yaml_failure=False,  # Prevent infinite retry
+                    retry_on_yaml_failure=False,
                     preferred_users=preferred_users,
                     excluded_users=excluded_users,
                 )

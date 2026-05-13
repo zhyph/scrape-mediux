@@ -13,9 +13,8 @@ RUN apk add --no-cache \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-  pip uninstall -y webdriver-manager
+COPY requirements-docker.txt .
+RUN pip install --no-cache-dir -r requirements-docker.txt
 
 # Remove build dependencies to keep image size small
 RUN apk del gcc python3-dev musl-dev linux-headers

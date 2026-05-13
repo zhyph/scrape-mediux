@@ -289,13 +289,12 @@ class ConfigManager:
             type=str,
             help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
         )
-
-        # DEPRECATED - Keep for error message
         parser.add_argument(
             "--folders",
             nargs="*",
             help="[DEPRECATED] This option is no longer supported. Use Plex setup instead.",
         )
+
         parser.add_argument(
             "--headless",
             action=argparse.BooleanOptionalAction,
@@ -393,6 +392,12 @@ class ConfigManager:
             type=int,
             help="Check memory usage every N operations (default: 100)",
         )
+        parser.add_argument(
+            "--namespace_configs",
+            type=str,
+            help="JSON string for namespace-specific cache configurations (advanced)",
+        )
+
         parser.add_argument(
             "--disable_ssl_verification",
             action=argparse.BooleanOptionalAction,
@@ -648,9 +653,118 @@ class ConfigManager:
                 default_val=False,
                 is_bool=True,
             ),
+            "namespace_configs": self._resolve_config_value(
+                arg_val=None,  # Only load from file
+                env_var_name="NAMESPACE_CONFIGS",
+                config_key="namespace_configs",
+                file_config=file_config,
+                default_val=None,
+            ),
         }
 
         return app_config
+
+    def validate_config(self, app_config: Dict[str, Any]) -> None:
+        """Run all config validators. Raises ValueError on first failure."""
+        validator = ConfigValidator(self.logger)
+        validator.validate_required(app_config)
+        validator.validate_cache(app_config)
+
+
+class ConfigValidator:
+    """Validates resolved configuration values and provides helpful error messages."""
+
+    def __init__(self, log: logging.Logger):
+        self.logger = log
+
+    def validate_required(self, config: Dict[str, Any]) -> None:
+        """Fail fast if required configuration keys are missing.
+
+        Args:
+            config: Fully resolved configuration dictionary.
+
+        Raises:
+            ValueError: If any required key is missing or empty.
+        """
+        always_required = {
+            "api_key": "TMDB API key",
+            "username": "Mediux username",
+            "password": "Mediux password",
+            "nickname": "Mediux nickname (visible username on site)",
+        }
+
+        plex_required = {
+            "plex_url": "Plex server URL",
+            "plex_token": "Plex API token",
+        }
+
+        missing = []
+        for key, description in always_required.items():
+            if not config.get(key):
+                missing.append(f"  - {key}: {description}")
+
+        # Plex config is required unless a direct --mediux_url was provided
+        if not config.get("mediux_url"):
+            for key, description in plex_required.items():
+                if not config.get(key):
+                    missing.append(f"  - {key}: {description}")
+            if not config.get("plex_libraries"):
+                missing.append(
+                    "  - plex_libraries: At least one Plex library name (e.g. [\"Movies\"])"
+                )
+
+        if missing:
+            self.logger.error("Missing required configuration values:")
+            for item in missing:
+                self.logger.error(item)
+            raise ValueError(
+                "Required configuration is missing. Check config.json or CLI arguments."
+            )
+
+    def validate_cache(self, config: Dict[str, Any]) -> None:
+        """Validate types and ranges for cache-related configuration values.
+
+        Args:
+            config: Fully resolved configuration dictionary.
+
+        Raises:
+            ValueError: If any cache setting has an invalid value.
+        """
+        errors = []
+
+        max_size = config.get("max_cache_size", 1000)
+        if not isinstance(max_size, int) or max_size <= 0:
+            errors.append(
+                f"max_cache_size must be a positive integer (got: {max_size!r}). "
+                "Recommended range: 100–10000."
+            )
+
+        ttl = config.get("default_cache_ttl", 3600)
+        if not isinstance(ttl, int) or ttl < 0:
+            errors.append(
+                f"default_cache_ttl must be a non-negative integer in seconds (got: {ttl!r}). "
+                "Recommended range: 3600–86400 (1 hour to 24 hours)."
+            )
+
+        max_mem = config.get("max_cache_memory_mb", 50.0)
+        if not isinstance(max_mem, (int, float)) or max_mem <= 0:
+            errors.append(
+                f"max_cache_memory_mb must be a positive number (got: {max_mem!r}). "
+                "Recommended range: 10–500 MB."
+            )
+
+        interval = config.get("memory_check_interval", 100)
+        if not isinstance(interval, int) or interval <= 0:
+            errors.append(
+                f"memory_check_interval must be a positive integer (got: {interval!r}). "
+                "Recommended range: 10–1000."
+            )
+
+        if errors:
+            self.logger.error("Invalid cache configuration:")
+            for err in errors:
+                self.logger.error(f"  - {err}")
+            raise ValueError("Cache configuration is invalid. Check config.json.")
 
 
 yaml_parser = yaml.YAML()

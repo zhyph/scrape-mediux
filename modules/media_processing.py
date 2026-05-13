@@ -287,6 +287,20 @@ class MediaProcessingPipeline:
             )
             return None
 
+        # Remap null top-level key (Mediux emits null when TVDB ID is absent)
+        expected_id = str(tvdb_id_for_tv) if media_type == "tv" and tvdb_id_for_tv else str(tmdb_id)
+        from modules.data_processor import YAMLStructureProcessor
+        structure_processor = YAMLStructureProcessor()
+        new_raw_yaml, was_remapped = structure_processor.remap_null_top_level_key(
+            yaml_string=new_raw_yaml,
+            expected_id=expected_id,
+            media_name=media_name,
+        )
+        if was_remapped:
+            logger.info(
+                f"🔑 Null key remapped to '{expected_id}' for '{media_name}' (TMDB: {tmdb_id})."
+            )
+
         # Process YAML structure for TV shows if needed
         if media_type == "tv":
             is_malformed = self._check_tv_yaml_structure(new_raw_yaml, media_name)
@@ -584,6 +598,21 @@ class MediaProcessingPipeline:
             new_data[folder_name][tmdb_id] = final_yaml_data
 
 
+def _log_media_header(media_name: str, media_id_from_folder, folder_map_for_media) -> None:
+    """Log the start-of-processing header for a single media item."""
+    media_separator = "=" * 60
+    library_name = "Unknown"
+    if folder_map_for_media and media_id_from_folder:
+        folder_entries = folder_map_for_media.get(media_id_from_folder, [])
+        if folder_entries:
+            first_entry = folder_entries[0]
+            library_name = first_entry[0] if isinstance(first_entry, tuple) else first_entry
+    logger.info(media_separator)
+    logger.info(f"🎬 STARTING: {media_name} [Library: {library_name}]")
+    logger.info(f"   Source ID: {media_id_from_folder}")
+    logger.info(media_separator)
+
+
 def process_single_media_item(
     *,
     media_id_from_folder,
@@ -618,29 +647,11 @@ def process_single_media_item(
     updated_titles_list = context.updated_titles_list
     fixed_titles_list = context.fixed_titles_list
 
-    # Log the start of processing immediately
-    media_separator = "=" * 60
-    logger.info(f"{media_separator}")
-    # Get library/folder name from folder_map_for_media
-    library_name = "Unknown"
-    if folder_map_for_media and media_id_from_folder:
-        folder_entries = folder_map_for_media.get(media_id_from_folder, [])
-        if folder_entries:
-            # Handle both Plex (tuple) and folder scanning (string) cases
-            first_entry = folder_entries[0]
-            if isinstance(first_entry, tuple):
-                library_name = first_entry[0]  # Plex case: (lib_name, media_type)
-            else:
-                library_name = first_entry  # Folder scanning case: just the folder name
-
-    logger.info(f"🎬 STARTING: {media_name} [Library: {library_name}]")
-    logger.info(f"   Source ID: {media_id_from_folder}")
-    logger.info(f"{media_separator}")
-
-    # Create pipeline instance and initialize services
     pipeline = MediaProcessingPipeline()
     tmdb_client = ServiceFactory.get_tmdb_client(config.api_key)
     comparison_engine = ServiceFactory.get_comparison_engine()
+
+    _log_media_header(media_name, media_id_from_folder, folder_map_for_media)
 
     # Resolve TMDB ID and media type
     tmdb_id, media_type = pipeline._resolve_tmdb_id(
@@ -686,9 +697,7 @@ def process_single_media_item(
     )
 
     if should_skip:
-        # Add completion marker for skipped items
-        media_separator = "=" * 60
-        logger.info(f"{media_separator}\n")
+        logger.info(f"{'=' * 60}\n")
         return
 
     # Scrape and process Mediux data
@@ -738,6 +747,5 @@ def process_single_media_item(
     )
 
     # Mark completion of this media item with prominent separator
-    media_separator = "=" * 60
     logger.info(f"✅ COMPLETED: {media_name}")
-    logger.info(f"{media_separator}\n")
+    logger.info(f"{'=' * 60}\n")

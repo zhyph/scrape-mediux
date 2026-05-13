@@ -35,6 +35,13 @@ def main():
     # Parse configuration
     app_settings = config_manager.parse_arguments_and_load_config()
 
+    # Validate configuration (raises ValueError with a clear message on failure)
+    try:
+        config_manager.validate_config(app_settings)
+    except ValueError as e:
+        logger.error(str(e))
+        exit(1)
+
     # Configure global HTTP session
     from modules.http_client import configure_global_session
 
@@ -87,6 +94,11 @@ def main():
             "cache_dir": app_settings.get(
                 "cache_dir", FileSystemConstants.OUTPUT_DIR_DEFAULT
             ),
+            "max_cache_size": app_settings.get("max_cache_size"),
+            "default_cache_ttl": app_settings.get("default_cache_ttl"),
+            "max_cache_memory_mb": app_settings.get("max_cache_memory_mb"),
+            "memory_check_interval": app_settings.get("memory_check_interval"),
+            "namespace_configs": app_settings.get("namespace_configs"),
         }
 
         if app_settings["cron_expression"]:
